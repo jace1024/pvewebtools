@@ -87,7 +87,7 @@ pvewebtools 的工具系统是**数据驱动**的：
 
 ### M1 · 单节点 k8s（可独立先行）
 
-- **T1.1 工具注册：** `core/tools/tools_k8s.py` 加 `k8s_allinone`（`category=advanced`, `risk=high`），参数 `version`(text, 正则 `v\d+\.\d+\.\d+`)、`cni`(select: calico/flannel)、`runtime`(select: containerd)；挂入 pro 模块。
+- **T1.1 工具注册：** `core/tools/tools_k8s.py` 加 `k8s_allinone`（`category=advanced`, `risk=high`），参数 `version`(text, 正则 `v\d+\.\d+\.\d+`)、`cni`(select: calico/flannel)、`runtime`(select: containerd)；注册进核心工具箱（随 `toolbox.py` 自动发现）。
 - **T1.2 脚本** `scripts/k8s_allinone.sh`：系统前置 → 装 kubeadm/kubelet/kubectl（apt 走阿里云 kubernetes 源）→ containerd 配置 → `kubeadm init --pod-network-cidr` → 去 master 污点 → 装 Calico/Flannel → 写 `root/.kube/config`。
 - **T1.3 验证：** 单台 VM 跑通，`kubectl get nodes` 显示 Ready。
 - 依赖：T0.1（VM 通道）。
