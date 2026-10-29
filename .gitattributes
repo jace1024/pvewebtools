@@ -1,0 +1,2 @@
+# Shell 脚本强制 LF 行尾，避免 Windows 上 git 检出成 CRLF 导致 bash 无法执行
+*.sh text eol=lf

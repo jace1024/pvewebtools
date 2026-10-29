@@ -1,0 +1,35 @@
+{
+  "presets": [
+    { "label": "Ubuntu 24.04 (Noble)", "url": "https://mirrors.ustc.edu.cn/ubuntu-cloud-images/noble/current/noble-server-cloudimg-amd64.img" },
+    { "label": "Ubuntu 22.04 (Jammy)", "url": "https://mirrors.ustc.edu.cn/ubuntu-cloud-images/jammy/current/jammy-server-cloudimg-amd64.img" },
+    { "label": "Ubuntu 20.04 (Focal)", "url": "https://mirrors.ustc.edu.cn/ubuntu-cloud-images/focal/current/focal-server-cloudimg-amd64.img" },
+    { "label": "Ubuntu 18.04 (Bionic, EOL)", "url": "https://mirrors.ustc.edu.cn/ubuntu-cloud-images/bionic/current/bionic-server-cloudimg-amd64.img" },
+
+    { "label": "Debian 13 (Trixie)", "url": "https://mirrors.ustc.edu.cn/debian-cdimage/cloud/trixie/latest/debian-13-generic-amd64.qcow2" },
+    { "label": "Debian 12 (Bookworm)", "url": "https://mirrors.ustc.edu.cn/debian-cdimage/cloud/bookworm/latest/debian-12-generic-amd64.qcow2" },
+    { "label": "Debian 11 (Bullseye)", "url": "https://mirrors.ustc.edu.cn/debian-cdimage/cloud/bullseye/latest/debian-11-generic-amd64.qcow2" },
+
+    { "label": "Fedora 44 (Cloud Base)", "url": "https://mirrors.ustc.edu.cn/fedora/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2" },
+    { "label": "Fedora 43 (Cloud Base)", "url": "https://mirrors.ustc.edu.cn/fedora/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2" },
+
+    { "label": "Rocky Linux 10", "url": "https://mirrors.ustc.edu.cn/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2" },
+    { "label": "Rocky Linux 9", "url": "https://mirrors.ustc.edu.cn/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2" },
+    { "label": "Rocky Linux 8", "url": "https://mirrors.ustc.edu.cn/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" },
+
+    { "label": "AlmaLinux 10", "url": "https://mirrors.aliyun.com/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2" },
+    { "label": "AlmaLinux 9", "url": "https://mirrors.aliyun.com/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2" },
+    { "label": "AlmaLinux 8", "url": "https://mirrors.aliyun.com/almalinux/8/cloud/x86_64/images/AlmaLinux-8-GenericCloud-latest.x86_64.qcow2" },
+
+    { "label": "CentOS 7.6 (GenericCloud 1811, EOL)", "url": "https://mirrors.nju.edu.cn/centos-cloud/centos/7/images/CentOS-7-x86_64-GenericCloud-1811.qcow2" },
+    { "label": "CentOS 8.4 (GenericCloud, EOL)", "url": "https://mirrors.nju.edu.cn/centos-cloud/centos/8/x86_64/images/CentOS-8-GenericCloud-8.4.2105-20210603.0.x86_64.qcow2" },
+    { "label": "CentOS Stream 9", "url": "https://mirrors.ustc.edu.cn/centos-cloud/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2" },
+    { "label": "CentOS Stream 10", "url": "https://mirrors.ustc.edu.cn/centos-cloud/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-latest.x86_64.qcow2" },
+
+    { "label": "Alpine 3.22 (Cloud, BIOS)", "url": "https://mirrors.ustc.edu.cn/alpine/v3.22/releases/cloud/generic_alpine-3.22.2-x86_64-bios-tiny-r0.qcow2" }
+  ],
+
+  "mirror_repo_support": {
+    "anolis": ["aliyun", "huawei", "ustc", "tsinghua"],
+    "openeuler": ["aliyun", "huawei", "ustc", "tsinghua"]
+  }
+}

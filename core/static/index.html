@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PVE WebTools</title>
+<!-- 橙色扳手 favicon（内联 SVG，无需额外图标文件，避免浏览器显示默认占位图） -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ff8c1a' d='M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* 授权状态横幅：出现未授权机器时提示工具箱停用 */
+  .license-banner {
+    margin: 12px 0; padding: 12px 16px; border-radius: 10px; font-size: 14px;
+    background: rgba(255, 140, 26, 0.12); border: 1px solid rgba(255, 140, 26, 0.45);
+    line-height: 1.6;
+  }
+  .license-banner b { color: #ff8c1a; }
+  /* 系统升级：上传进度条 / 校验清单 */
+  .upgrade-bar { height: 8px; margin-top: 10px; border-radius: 4px; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--border); }
+  .upgrade-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  /* 文件框 / 上传按钮 / 进度文案同排一行（窄屏自动换行），省掉一层高度 */
+  .upgrade-upload-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .upgrade-check { margin-top: 12px; font-size: 13px; line-height: 1.95; }
+  .upgrade-check .ok { color: #35c46a; }
+  .upgrade-check .bad { color: #ff5c5c; }
+  .upgrade-check .warn { color: #ff8c1a; }
+  .upgrade-ver { font-size: 13px; line-height: 1.9; }
+  /* 登录门禁浮层：未登录时全屏遮罩，主界面初始化前先校验会话 */
+  #loginMask {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(12,16,24,0.82); backdrop-filter: blur(4px);
+  }
+  #loginMask.hidden { display: none; }
+  .login-card {
+    width: 340px; max-width: 90vw; padding: 28px 26px 22px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 18px 48px rgba(0,0,0,.45);
+  }
+  .login-card h2 { margin: 0 0 4px; font-size: 18px; }
+  .login-sub { margin: 0 0 18px; font-size: 13px; color: var(--muted); }
+  .login-row { margin-bottom: 12px; }
+  .login-row label { display: block; font-size: 13px; margin-bottom: 5px; color: var(--muted); }
+  .login-row input {
+    width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: 14px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: inherit;
+  }
+  .login-row input:focus { outline: none; border-color: var(--accent); }
+  .login-btn {
+    width: 100%; margin-top: 6px; padding: 10px; font-size: 15px; font-weight: 600;
+    background: var(--accent); color: #fff; border: none; border-radius: 8px; cursor: pointer;
+  }
+  .login-btn:disabled { opacity: .6; cursor: default; }
+  .login-err { margin-top: 10px; font-size: 13px; color: #ff6b6b; min-height: 18px; line-height: 1.5; }
+  .login-err:not(:empty) {
+    background: rgba(255, 92, 92, 0.12);
+    border: 1px solid rgba(255, 92, 92, 0.5);
+    border-radius: 8px; padding: 8px 10px;
+  }
+  .login-row input.bad { border-color: #ff5c5c; box-shadow: 0 0 0 2px rgba(255, 92, 92, 0.15); }
+  @keyframes loginShake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+  .login-card.shake { animation: loginShake .35s ease; }
+  .login-hint { margin: -2px 0 10px; font-size: 12px; color: #ff8c1a; }
+</style>
+</head>
+<body>
+<!-- 内联 SVG 图标库（同色线性风格，24×24 viewBox）。
+ 颜色由 .ico 的 stroke:currentColor 决定，跟随所在文字色（标题白 / 明细灰 / 告警橙），
+ 不再依赖 emoji 的彩色字形，避免同类标题出现「有的有色、有的发白」 -->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <symbol id="ico-cpu" viewBox="0 0 24 24">
+    <rect x="6" y="6" width="12" height="12" rx="2.5"/>
+    <rect x="10" y="10" width="4" height="4" rx="1"/>
+    <path d="M12 2.8V6M12 18v3.2M2.8 12H6M18 12h3.2"/>
+  </symbol>
+  <symbol id="ico-mem" viewBox="0 0 24 24">
+    <rect x="2.5" y="6.5" width="19" height="10.5" rx="1.5"/>
+    <path d="M5.5 17v-2.6M8 17v-2.6M10.5 17v-2.6M13.5 17v-2.6M16 17v-2.6M18.5 17v-2.6"/>
+  </symbol>
+  <symbol id="ico-disk" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.2"/>
+    <circle cx="12" cy="12" r="2.2"/>
+    <path d="M18.4 6.4 12.8 12.8"/>
+  </symbol>
+  <symbol id="ico-nic" viewBox="0 0 24 24">
+    <rect x="4" y="6.5" width="16" height="11" rx="2"/>
+    <path d="M8.5 10v4M12 10v4M15.5 10v4"/>
+  </symbol>
+  <symbol id="ico-gpu" viewBox="0 0 24 24">
+    <rect x="2.5" y="7" width="19" height="10" rx="1.5"/>
+    <circle cx="9" cy="12" r="2.8"/>
+    <path d="M16 9.5h3M16 12h3M16 14.5h3"/>
+  </symbol>
+  <symbol id="ico-slot" viewBox="0 0 24 24">
+    <rect x="3.5" y="3.5" width="17" height="17" rx="2"/>
+    <rect x="8.5" y="8.5" width="7" height="7" rx="1"/>
+  </symbol>
+  <symbol id="ico-load" viewBox="0 0 24 24">
+    <path d="M4 16.5a8 8 0 1 1 16 0"/>
+    <path d="M12 16.5 16.2 11"/>
+    <circle cx="12" cy="16.5" r="1.1"/>
+  </symbol>
+  <symbol id="ico-bolt" viewBox="0 0 24 24">
+    <path d="M13.5 2.5 5.5 13.5h5l-1 8 8-11.5h-5z"/>
+  </symbol>
+  <symbol id="ico-temp" viewBox="0 0 24 24">
+    <path d="M14.2 14.6V5.4a2.2 2.2 0 0 0-4.4 0v9.2a4.2 4.2 0 1 0 4.4 0z"/>
+    <path d="M12 9.5v6.5"/>
+  </symbol>
+  <symbol id="ico-warn" viewBox="0 0 24 24">
+    <path d="M12 3.6 21 19.6H3z"/>
+    <path d="M12 9.5v4.6M12 16.9v.1"/>
+  </symbol>
+  <symbol id="ico-refresh" viewBox="0 0 24 24">
+    <path d="M20 12a8 8 0 1 1-2.4-5.7"/>
+    <path d="M20 3.6V9h-5.4"/>
+  </symbol>
+  <symbol id="ico-gear" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="3.3"/>
+    <path d="M12 2.6v3.1M12 18.3v3.1M4.2 4.2l2.2 2.2M17.6 17.6l2.2 2.2M19.8 4.2l-2.2 2.2M6.4 17.6l-2.2 2.2M2.6 12h3.1M18.3 12h3.1"/>
+  </symbol>
+  <symbol id="ico-close" viewBox="0 0 24 24">
+    <path d="M6 6l12 12M18 6L6 18"/>
+  </symbol>
+  <symbol id="ico-trash" viewBox="0 0 24 24">
+    <path d="M4 6.5h16"/>
+    <path d="M9.5 6.5V4.2h5v2.3"/>
+    <path d="M6.6 6.5 7.6 19.5h8.8l1-13"/>
+    <path d="M10.5 10v6M13.5 10v6"/>
+  </symbol>
+  <symbol id="ico-download" viewBox="0 0 24 24">
+    <path d="M12 3.5v11"/>
+    <path d="M7.6 10.2 12 14.6l4.4-4.4"/>
+    <path d="M4.5 19.5h15"/>
+  </symbol>
+  <symbol id="ico-pencil" viewBox="0 0 24 24">
+    <path d="M4 20h4L19.6 8.4a2.1 2.1 0 0 0-3-3L4.6 17z"/>
+    <path d="M14.6 6.4 17.6 9.4"/>
+  </symbol>
+  <symbol id="ico-hourglass" viewBox="0 0 24 24">
+    <path d="M7.5 3.5h9v3L12 12l4.5 5.5v3h-9v-3L12 12 7.5 6.5z"/>
+  </symbol>
+  <symbol id="ico-lock" viewBox="0 0 24 24">
+    <rect x="5" y="10.5" width="14" height="9.5" rx="2"/>
+    <path d="M8.6 10.5V7.6a3.4 3.4 0 1 1 6.8 0v2.9"/>
+    <path d="M12 14.2v2.6"/>
+  </symbol>
+  <symbol id="ico-search" viewBox="0 0 24 24">
+    <circle cx="10.6" cy="10.6" r="6"/>
+    <path d="M15 15l4.5 4.5"/>
+  </symbol>
+  <symbol id="ico-clipboard" viewBox="0 0 24 24">
+    <path d="M9 4.6H7.2a2 2 0 0 0-2 2v11.8a2 2 0 0 0 2 2h9.6a2 2 0 0 0 2-2V6.6a2 2 0 0 0-2-2H15"/>
+    <rect x="9" y="3" width="6" height="3.4" rx="1"/>
+    <path d="M8.6 11.4h6.8M8.6 15h6.8"/>
+  </symbol>
+  <symbol id="ico-cone" viewBox="0 0 24 24">
+    <path d="M12 3.8 18.2 20H5.8z"/>
+    <path d="M8.9 12.6h6.2M10.4 8.2h3.2"/>
+    <path d="M4 20h16"/>
+  </symbol>
+  <symbol id="ico-server" viewBox="0 0 24 24">
+    <rect x="3.5" y="4" width="17" height="7" rx="1.6"/>
+    <rect x="3.5" y="13" width="17" height="7" rx="1.6"/>
+    <path d="M7 7.5h.01M7 16.5h.01"/>
+  </symbol>
+  <symbol id="ico-chevron" viewBox="0 0 24 24">
+    <path d="M6 9.5 12 15.5 18 9.5"/>
+  </symbol>
+  <symbol id="ico-power" viewBox="0 0 24 24">
+    <path d="M12 3.5v8.2"/>
+    <path d="M7.2 6.6a7.6 7.6 0 1 0 9.6 0"/>
+  </symbol>
+  <symbol id="ico-help" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9.2"/>
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+    <path d="M12 17h.01"/>
+  </symbol>
+</svg>
+<header>
+  <div class="brand">
+    <h1>PVE <b>WebTools</b></h1>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-view="overview">概览</button>
+    <button class="tab" data-view="node">节点管理</button>
+    <button class="tab" data-view="toolbox">工具箱</button>
+    <button class="tab" data-view="transfer">传输中心</button>
+    <button class="tab" data-view="logs">执行日志</button>
+  </nav>
+  <div class="header-right">
+    <span id="sessionInfo" class="muted hidden" title="当前登录用户与会话到期时间"></span>
+    <span id="refreshTime" class="muted"></span>
+    <button id="btnRefresh" class="btn"><span class="refresh-ico"><svg class="ico"><use href="#ico-refresh"></use></svg></span>刷新</button>
+    <button id="btnSettings" class="btn" onclick="openSettings()" title="系统设置（系统升级 / 帮助手册 / 版本）"><svg class="ico"><use href="#ico-gear"></use></svg>设置</button>
+    <button id="btnLogout" class="btn hidden" title="退出登录"><svg class="ico"><use href="#ico-power"></use></svg>退出</button>
+  </div>
+</header>
+
+
+
+<main id="viewOverview">
+  <!-- 节点概览卡片 -->
+  <section id="nodesSection">
+    <h2>节点</h2>
+    <!-- 节点切换标签：全部 / 各节点（数字为该节点虚机/容器的 运行中/总数，非宿主机数量），点选后过滤虚机/容器列表 -->
+    <div id="nodeTabs" class="node-tabs"></div>
+    <div id="nodeCards" class="cards"></div>
+  </section>
+
+  <!-- 虚机/容器列表 -->
+  <section>
+    <div class="section-head">
+      <h2>虚拟机 / 容器 <span id="nodeFilterTag" class="node-filter-tag hidden"></span></h2>
+      <div class="filters">
+        <input id="searchBox" type="text" placeholder="搜索名称或 VMID...">
+        <select id="typeFilter">
+          <option value="">全部类型</option>
+          <option value="qemu">虚拟机 (QEMU)</option>
+          <option value="lxc">容器 (LXC)</option>
+        </select>
+        <select id="statusFilter">
+          <option value="">全部状态</option>
+          <option value="running">运行中</option>
+          <option value="stopped">已停止</option>
+        </select>
+      </div>
+      <div id="batchBar" class="batch-bar hidden">
+        <span id="batchCount">已选 0 个虚机/容器</span>
+        <button class="btn btn-sm start" onclick="batchAction('start')">批量启动</button>
+        <button class="btn btn-sm danger" onclick="batchAction('shutdown')">批量关机</button>
+        <button class="btn btn-sm danger" onclick="batchAction('stop')">批量强制停止</button>
+        <button class="btn btn-sm" onclick="batchAction('reboot')">批量重启</button>
+        <button class="btn btn-sm" onclick="clearSelection()">取消选择</button>
+      </div>
+    </div>
+    <div class="guest-table-wrap">
+      <table id="guestTable">
+        <thead>
+          <tr>
+            <th class="cb-col"><input type="checkbox" id="selectAllGuests" title="全选当前页" onchange="toggleSelectAll(this)"></th>
+            <th>状态</th><th>VMID</th><th>名称</th><th>类型</th><th>节点</th>
+            <th>CPU</th><th>内存</th><th>IP 地址</th><th>运行时长</th><th>操作</th><th>开机自启</th><th>备注</th>
+          </tr>
+        </thead>
+        <tbody id="guestBody"></tbody>
+      </table>
+    </div>
+    <div id="pagerBar" class="pager-bar"></div>
+    <div id="emptyTip" class="empty-state hidden"><div class="empty-icon"><svg class="ico"><use href="#ico-search"></use></svg></div><div>没有匹配的虚机/容器</div></div>
+  </section>
+</main>
+
+<!-- 节点管理视图：管理其它 PVE 宿主机节点的功能模块（建设中） -->
+<main id="viewNode" class="hidden">
+  <section>
+    <div class="section-head">
+      <h2>节点列表 <span id="nodeMgmtHint" class="muted u-text13" >（集群节点概览；可加入集群、重启节点、重跑共享存储接入、临时取得仲裁）</span></h2>
+      <div class="filters">
+        <button class="btn btn-sm" onclick="loadNodeMgmt(true)">刷新</button>
+        <button class="btn btn-sm start" onclick="openJoinClusterModal()">+ 加入节点</button>
+      </div>
+    </div>
+    <div id="quorumBar" class="quorum-bar hidden"></div>
+    <div id="nodeMgmtCards" class="cards"></div>
+    <div id="nodeMgmtEmpty" class="empty-state hidden"><div class="empty-icon"><svg class="ico"><use href="#ico-server"></use></svg></div><div>暂无节点数据</div></div>
+  </section>
+</main>
+
+<!-- 工具箱视图 -->
+<main id="viewToolbox" class="hidden">
+  <div class="toolbox-layout">
+    <aside id="catList" class="cat-list"></aside>
+    <div class="tool-panel">
+      <div id="toolGrid" class="tool-grid"></div>
+    </div>
+  </div>
+</main>
+
+<!-- 传输中心：独立大模块，位于「工具箱」之后。内部包含「上传」「获取云镜像」「获取 LXC 模板」三个独立子模块 -->
+<main id="viewTransfer" class="hidden">
+  <div class="transfer-layout">
+    <aside class="cat-list" id="tcNav">
+      <button class="cat-item active" data-tc="upload" onclick="selectTcPane('upload')"><span><i class="cat-ico">⬆</i>上传文件</span></button>
+      <button class="cat-item" data-tc="download" onclick="selectTcPane('download')"><span><i class="cat-ico">☁</i>获取云镜像</span></button>
+      <button class="cat-item" data-tc="lxc" onclick="selectTcPane('lxc')"><span><i class="cat-ico">📦</i>获取 LXC 模板</span></button>
+      <button class="cat-item" data-tc="storage" onclick="selectTcPane('storage')"><span><i class="cat-ico">💾</i>存储内容</span></button>
+      <button class="cat-item" data-tc="cache" onclick="selectTcPane('cache')"><span><i class="cat-ico">🗂</i>缓存加速</span></button>
+    </aside>
+    <div class="tool-panel">
+      <div class="tc-modules" id="tcModules">
+    <section class="transfer-center module" id="uploadCenter" data-tc-pane="upload">
+      <div class="tc-head">
+        <div class="tc-title">上传文件</div>
+        <button type="button" class="btn-icon" id="tcToggle" title="折叠/展开"><svg class="ico ico-chev"><use href="#ico-chevron"></use></svg></button>
+      </div>
+      <div class="tc-body" id="tcBody">
+        <div class="tc-card">
+          <div class="tc-row">
+            <label>类型</label>
+            <select id="tcUploadType" onchange="tcOnTypeChange()">
+              <option value="backup" selected title="接受 .vma / .vma.zst / .vma.gz / .vma.lzo">虚机模板（VM 备份 .vma）</option>
+              <option value="lxc" title="接受 .tar.gz / .tar.xz / .tar.zst；LXC(CT) 容器模板，落所选存储的 template/cache，供创建容器使用">LXC 容器模板（.tar.gz/.tar.xz/.tar.zst）</option>
+              <option value="cloud" title="接受 .qcow2 / .raw / .img 等；含 cloud-init 的云镜像，落 cloud-images，供云镜像建机">云镜像（含 cloud-init）</option>
+              <option value="disk" title="接受 .qcow2 / .raw / .img 等；普通磁盘镜像（无 cloud-init，如 openEuler），落 disk-images，供虚机磁盘导入/制作云镜像原料">磁盘镜像（无 cloud-init）</option>
+              <option value="vbios" title="接受 .rom / .bin">vBIOS ROM（显卡直通）</option>
+              <!-- vGPU 物料只有 Pro 的「高级玩法」工具会消费，Lite 版隐藏（data-edition 由 JS 按运行档位显隐） -->
+              <option value="vgpu" data-edition="pro" class="hidden" title="接受 .run / .patch / .so；NVIDIA vGPU 宿主机物料：驱动 NVIDIA-Linux-x86_64-&lt;版本&gt;-vgpu-kvm.run、消费级卡解锁补丁 &lt;版本&gt;.patch（vgpu-proxmox）、解锁库 libvgpu_unlock_rs.so（vgpu_unlock-rs），落 vgpu-drivers，供「N卡 vGPU 宿主机准备」使用（.patch / .so 供开发版「vGPU 消费级卡解锁」使用）">vGPU 宿主机物料（驱动/解锁）</option>
+            </select>
+          </div>
+          <div class="tc-row" id="tcUploadStorageRow" style="display:none">
+            <label>目标存储</label>
+            <select id="tcUploadStorage" title="仅列出支持容器模板(vztmpl)内容的存储，模板落 <存储>/template/cache；默认为共享存储 pvewebtools"></select>
+          </div>
+          <div class="tc-row">
+            <label>文件</label>
+            <div class="tc-file">
+              <button type="button" class="btn" id="tcPickFile">选择文件</button>
+              <span id="tcFileName" class="tc-file-name">未选择</span>
+              <input type="file" id="tcFileInput" style="display:none">
+            </div>
+          </div>
+          <div class="tc-row tc-actions">
+            <button type="button" class="btn run" id="tcUploadBtn">上传</button>
+            <div class="iso-progress hidden" id="tcUploadBar"><i></i></div>
+            <span id="tcUploadText" class="iso-progress-text"></span>
+          </div>
+        </div>
+        <!-- 活动传输（仅上传方向） -->
+        <div class="tc-activity-wrap" data-tc-dir="up">
+          <div class="tc-activity-title">活动传输 <span class="tc-active-count muted">0</span><button type="button" class="tc-clear hidden" data-tc-clear onclick="tcClearFinished(this)">清除已结束</button></div>
+          <div class="tc-activity"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="transfer-center module" id="downloadCenter" data-tc-pane="download">
+      <div class="tc-head">
+        <div class="tc-title">获取云镜像</div>
+        <button type="button" class="btn-icon" id="tcToggleDl" title="折叠/展开"><svg class="ico ico-chev"><use href="#ico-chevron"></use></svg></button>
+      </div>
+      <div class="tc-body" id="tcBodyDl">
+        <div class="tc-card">
+          <div class="tc-row">
+            <label>镜像</label>
+            <!-- 可搜索下拉（app.js createSearchSelect）：输入关键字实时过滤预设镜像列表 -->
+            <div class="ss" id="tcDownloadVersion" data-ss-ph="搜索镜像名称 / 版本…" data-ss-empty="无匹配镜像"></div>
+          </div>
+          <div class="tc-row">
+            <label>下载源</label>
+            <select id="tcCloudMirror" title="按所选镜像站改写预设地址的域名（保留路径）；默认中科大 USTC，可切换清华 TUNA / 阿里云"></select>
+          </div>
+          <div class="tc-row">
+            <label>目标存储</label>
+            <select id="tcCloudStorage" title="镜像落 <存储根>/cloud-images/；默认为共享存储 pvewebtools"></select>
+          </div>
+          <div class="tc-row">
+            <label>下载地址</label>
+            <input type="text" id="tcDownloadUrl" readonly placeholder="选择版本自动带出（只读，不可自定义）">
+          </div>
+          <div class="tc-row tc-actions">
+            <button type="button" class="btn run" id="tcDownloadBtn">下载</button>
+            <button type="button" class="btn" id="tcCheckPresetsBtn">校验源</button>
+            <button type="button" class="btn" id="tcManagePresetsBtn">管理预设源</button>
+            <span id="tcDownloadText" class="iso-progress-text"></span>
+            <span id="tcPresetCheck" class="muted"></span>
+          </div>
+        </div>
+        <!-- 活动传输（仅下载方向） -->
+        <div class="tc-activity-wrap" data-tc-dir="down">
+          <div class="tc-activity-title">活动传输 <span class="tc-active-count muted">0</span><button type="button" class="tc-clear hidden" data-tc-clear onclick="tcClearFinished(this)">清除已结束</button></div>
+          <div class="tc-activity"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="transfer-center module" id="lxcCenter" data-tc-pane="lxc">
+      <div class="tc-head">
+        <div class="tc-title">获取 LXC 模板</div>
+        <button type="button" class="btn-icon" id="tcToggleLxc" title="折叠/展开"><svg class="ico ico-chev"><use href="#ico-chevron"></use></svg></button>
+      </div>
+      <div class="tc-body" id="tcBodyLxc">
+        <div class="tc-card">
+          <div class="tc-row">
+            <label>分类</label>
+            <!-- 分类筛选（pveam 的 section）：选某类后下方模板列表只列该类，默认「全部分类」列出全部；
+ 选项与中文小标题由 app.js tcFillLxcSections 按当前列表动态生成 -->
+            <select id="tcLxcSection" title="按模板分类筛选（pveam 的 section），默认「全部分类」">
+              <option value="">全部分类</option>
+            </select>
+          </div>
+          <div class="tc-row">
+            <label>模板</label>
+            <!-- 可搜索下拉（app.js createSearchSelect）：pveam 模板几百条，输入即过滤（支持 "debian 12" 多词） -->
+            <div class="ss" id="tcLxcVersion" data-ss-ph="搜索模板名称（如 debian、ubuntu）…" data-ss-empty="无匹配模板"></div>
+          </div>
+          <div class="tc-row">
+            <label>下载源</label>
+            <select id="tcLxcMirror" title="默认「跟随本机」，即 APLInfo.pm 中配置的 CT 源（可用「更换软件源和 LXC 源」切换）"></select>
+          </div>
+          <div id="tcClusterWarn" class="tc-cluster-warn hidden"></div>
+          <div class="tc-row">
+            <label>目标存储</label>
+            <select id="tcLxcStorage" title="仅列出支持容器模板(vztmpl)内容的存储，模板落 <存储>/template/cache"></select>
+          </div>
+          <div class="tc-row">
+            <label>下载地址</label>
+            <input type="text" id="tcLxcUrl" readonly placeholder="选择模板自动带出（只读，不可自定义）">
+          </div>
+          <div class="tc-row tc-actions">
+            <button type="button" class="btn run" id="tcLxcDownloadBtn">下载</button>
+            <button type="button" class="btn" id="tcLxcRefreshBtn">刷新模板列表</button>
+            <span id="tcLxcText" class="iso-progress-text"></span>
+          </div>
+        </div>
+        <!-- 活动传输（仅模板下载方向） -->
+        <div class="tc-activity-wrap" data-tc-dir="lxc">
+          <div class="tc-activity-title">活动传输 <span class="tc-active-count muted">0</span><button type="button" class="tc-clear hidden" data-tc-clear onclick="tcClearFinished(this)">清除已结束</button></div>
+          <div class="tc-activity"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="transfer-center module" id="storageContentCenter" data-tc-pane="storage">
+      <div class="tc-head">
+        <div class="tc-title">存储内容</div>
+        <button type="button" class="btn-icon" id="tcToggleSc" title="折叠/展开"><svg class="ico ico-chev"><use href="#ico-chevron"></use></svg></button>
+      </div>
+      <div class="tc-body" id="tcBodySc">
+        <div class="tc-card">
+          <div class="tc-row">
+            <label>存储</label>
+            <select id="tcContentStorage"><option value="">请选择…</option></select>
+            <button type="button" class="btn" id="tcRefreshContent" style="margin-left:8px">刷新</button>
+          </div>
+        </div>
+        <div id="tcContentList" class="tc-content-list"></div>
+        <div id="scBatchBar" class="sc-batch-bar hidden">
+          <label class="sc-selall"><input type="checkbox" id="scSelectAll"> 全选（可删项）</label>
+          <span class="sc-selcount">已选 <b id="scSelCount">0</b> 项</span>
+          <span class="sc-spacer"></span>
+          <button type="button" class="btn" id="scBatchCancel">取消选择</button>
+          <button type="button" class="btn danger" id="scBatchDelete">批量删除</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="transfer-center module" id="templateCacheCenter" data-tc-pane="cache">
+      <div class="tc-head">
+        <div class="tc-title">缓存加速<span class="tip tc-help" data-tip="建机 / 还原用到的数据源文件（虚机模板、云镜像、备份、LXC 模板）首次在某个节点使用时，会自动从共享存储拉取一份到该节点本机盘（默认上限 50 GB），之后该节点所有建机与还原都直读本地，不再走网络。缓存写满时会在下次拉取前自动淘汰最久未用的条目。"><svg class="ico ico-help"><use href="#ico-help"></use></svg></span></div>
+        <button type="button" class="btn-icon" id="tcToggleCache" title="折叠/展开"><svg class="ico ico-chev"><use href="#ico-chevron"></use></svg></button>
+      </div>
+      <div class="tc-body" id="tcBodyCache">
+        <div class="tc-card">
+          <div class="tc-toolbar">
+            <label>节点</label>
+            <select id="tmplCacheNode"></select>
+            <button type="button" class="btn" id="tmplCacheRefresh">刷新</button>
+          </div>
+          <div id="tmplCacheSummary" class="tc-summary"></div>
+        </div>
+        <div id="tmplCacheList" class="tc-content-list"></div>
+        <div class="tc-card">
+          <div class="tc-subhead">预热到节点<span class="tip tc-help" data-tip="提前把虚机模板缓存到所选节点，之后该节点建机直接读本地，省去首次建机的等待。这里只列「模板快速建机」能用的虚机模板；云镜像 / 备份 / LXC 模板没有独立入口，会在首次使用时自动缓存。拉取耗时取决于文件大小与链路带宽。"><svg class="ico ico-help"><use href="#ico-help"></use></svg></span></div>
+          <div class="tc-toolbar">
+            <select id="tmplWarmupTemplate"><option value="">选择虚机模板…</option></select>
+            <button type="button" class="btn run" id="tmplWarmupRun">开始预热</button>
+          </div>
+          <div id="tmplWarmupProg" class="tc-prog hidden">
+            <div class="iso-progress"><i></i></div>
+            <span class="iso-progress-text" id="tmplWarmupPct"></span>
+          </div>
+          <div id="tmplWarmupLogWrap" class="hidden">
+            <div class="tc-log-head">
+              <span>预热日志</span>
+              <span class="tc-log-btns">
+                <button type="button" class="btn btn-sm" id="tmplWarmupLogCopy" onclick="tmplWarmupCopyLog()" title="复制全部预热日志（纯文本）"><svg class="ico"><use href="#ico-clipboard"></use></svg>复制日志</button>
+                <button type="button" class="btn btn-sm" id="tmplWarmupLogToggle">收起</button>
+              </span>
+            </div>
+            <pre id="tmplWarmupLog" class="tc-warmup-log"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    </div>
+    </div>
+  </div>
+</main>
+
+<!-- 执行日志视图：工具箱任务的历史记录查询 -->
+<main id="viewLogs" class="hidden">
+  <section>
+    <div class="section-head">
+      <h2>执行日志 <span class="muted" id="jobsCount"></span></h2>
+      <div class="filters">
+        <input id="jobSearchBox" type="text" placeholder="搜索工具名...">
+        <select id="jobStatusFilter">
+          <option value="">全部状态</option>
+          <option value="running">执行中</option>
+          <option value="success">成功</option>
+          <option value="failed">失败</option>
+        </select>
+        <select id="jobClearDays">
+          <option value="7">7 天前</option>
+          <option value="30">30 天前</option>
+          <option value="90">90 天前</option>
+          <option value="all">全部</option>
+        </select>
+        <button id="btnClearJobs" class="btn danger"><svg class="ico"><use href="#ico-trash"></use></svg>清理日志</button>
+        <button id="btnReloadJobs" class="btn"><svg class="ico"><use href="#ico-refresh"></use></svg>刷新</button>
+      </div>
+    </div>
+    <table id="jobTable">
+      <thead>
+        <tr>
+          <th>状态</th><th>工具</th><th>执行节点</th><th>开始时间</th>
+          <th>耗时</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="jobBody"></tbody>
+    </table>
+    <div id="jobEmptyTip" class="empty-state hidden"><div class="empty-icon"><svg class="ico"><use href="#ico-clipboard"></use></svg></div><div>暂无执行记录</div></div>
+  </section>
+</main>
+
+<!-- 日志详情弹窗：元信息 + 完整日志 -->
+<div id="jobLogModal" class="modal-mask hidden">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h3 id="jobLogTitle">执行日志</h3>
+      <button id="jobLogClose" class="btn-icon"><svg class="ico"><use href="#ico-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div id="jobMeta" class="job-meta"></div>
+      <pre id="jobFullLog" class="log-panel"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- 工具执行弹窗：参数表单 + 实时日志 -->
+<div id="toolModal" class="modal-mask hidden">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h3 id="toolModalTitle">工具</h3>
+      <button id="toolModalClose" class="btn-icon"><svg class="ico"><use href="#ico-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <p id="toolDesc" class="tool-desc"></p>
+      <div id="toolDescToggle" class="tool-desc-toggle hidden" onclick="toggleToolDesc()">
+        <svg class="ico ico-sm ico-chev"><use href="#ico-chevron"></use></svg><span>展开全部</span>
+      </div>
+      <div id="scheduleSection" class="hidden">
+        <div class="sched-title">当前定时任务 <span id="schedFilterNote" class="sched-note"></span></div>
+        <div id="scheduleList"></div>
+      </div>
+      <div id="snapshotSection" class="hidden">
+        <div class="sched-title">快照列表</div>
+        <div id="snapshotList"></div>
+      </div>
+      <div id="toolForm" class="tool-form"></div>
+      <div id="confirmRow" class="confirm-row hidden">
+        <div class="confirm-head">
+          <span class="confirm-ico">⚠</span>
+          <b class="confirm-title">此操作风险较高，需输入下方名称确认</b>
+        </div>
+        <div class="confirm-target">
+          <code id="confirmWord" class="confirm-word" title="单击可整段选中"></code>
+          <button type="button" class="btn-icon confirm-copy" id="confirmCopy" title="复制名称">
+            <svg class="ico"><use href="#ico-clipboard"></use></svg>
+          </button>
+        </div>
+        <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" placeholder="输入上方名称">
+        <div id="confirmHint" class="confirm-hint hidden"></div>
+      </div>
+      <div id="depHint" class="dep-hint hidden"></div>
+      <div class="tool-actions">
+        <button id="btnRunTool" class="btn run">▶ 执行</button>
+        <button id="btnKillJob" class="btn danger hidden" onclick="killCurrentJob()"><svg class="ico"><use href="#ico-close"></use></svg>强制结束</button>
+        <button id="btnRebootNode" class="btn reboot hidden" onclick="rebootNode()"><svg class="ico"><use href="#ico-refresh"></use></svg>重启生效</button>
+        <button id="btnRebootGuest" class="btn reboot hidden" onclick="rebootGuestForPassthrough()"><svg class="ico"><use href="#ico-power"></use></svg>使直通生效</button>
+        <span id="jobStatus" class="job-status"></span>
+      </div>
+      <!-- 执行日志：标题条与日志面板同进同退（setLogVisible），右上角「复制日志」拷全部原文 -->
+      <div id="logWrap" class="hidden">
+        <div class="log-head">
+          <span>执行日志<span id="logCount"></span></span>
+          <button type="button" class="btn btn-sm" id="btnCopyLog" onclick="copyCurrentLog()" title="复制本次执行的全部日志（纯文本）"><svg class="ico"><use href="#ico-clipboard"></use></svg>复制日志</button>
+        </div>
+        <pre id="logPanel" class="log-panel"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 应用内确认框：替代浏览器原生 confirm / prompt。
+ 原生框会显示页面地址、样式不可控，与产品风格割裂；这里统一成应用内弹窗，
+ 供「普通」风险工具执行确认及各操作确认使用（见 app.js 的 appConfirm）。
+ requireText 模式下显示确认词输入框（高危级「输入工具名」同款防误触）。 -->
+<div id="appConfirmModal" class="modal-mask hidden">
+  <div class="modal modal-narrow">
+    <div class="modal-head">
+      <h3 id="appConfirmTitle">确认操作</h3>
+      <button id="appConfirmClose" class="btn-icon" type="button"><svg class="ico"><use href="#ico-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <p id="appConfirmMsg" class="app-confirm-msg"></p>
+      <div id="appConfirmInputWrap" class="hidden">
+        <input type="text" id="appConfirmInput" autocomplete="off" spellcheck="false" placeholder="请输入确认词">
+        <div id="appConfirmInputHint" class="app-confirm-hint"></div>
+      </div>
+      <div class="app-confirm-actions">
+        <button type="button" class="btn" id="appConfirmCancel">取消</button>
+        <button type="button" class="btn run" id="appConfirmOk">确定</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 配置详情弹窗 -->
+<div id="modal" class="modal-mask hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">配置详情</h3>
+      <button id="modalClose" class="btn-icon"><svg class="ico"><use href="#ico-close"></use></svg></button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+  </div>
+</div>
+
+<!-- 云镜像预设源管理弹窗：网页维护「获取云镜像」下载源，保存即生效 -->
+<div id="presetModal" class="modal-mask hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>管理预设源（共 <span id="presetTotal">0</span> 个）</h3>
+      <button id="presetModalClose" class="btn-icon"><svg class="ico"><use href="#ico-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <p class="muted">维护「获取云镜像」的下载源；保存后立即生效，旧配置自动备份。</p>
+      <div id="presetList"></div>
+      <div class="tc-row tc-actions">
+        <button type="button" class="btn" id="presetAdd">+ 新增</button>
+        <button type="button" class="btn" id="presetReset">重置默认</button>
+        <button type="button" class="btn" id="presetCancel">取消</button>
+        <button type="button" class="btn run" id="presetSave">保存</button>
+        <span id="presetMsg" class="muted"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- 系统设置弹窗：分区切换（系统升级 / 帮助手册），后续设置项按分区追加。 -->
+<div id="settingsModal" class="modal-mask hidden">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <!-- 版本胶囊（LITE / PRO / 源码版 + 版本号）：初始隐藏，由 JS 拉到 /api/edition 后填内容。
+ 从原顶栏品牌位移到此处 —— 三个分区都看得见，且不占顶栏常驻空间 -->
+      <h3>系统设置<span id="editionBadge" class="edition-badge" style="display:none"></span></h3>
+      <button id="settingsClose" class="btn-icon"><svg class="ico"><use href="#ico-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-tabs">
+        <button class="stab active" data-pane="help">帮助手册</button>
+        <button class="stab" data-pane="upgrade">系统升级</button>
+      </div>
+
+
+      <!-- 分区二：系统升级（编译版自助升级：上传编译包 → 安装前校验 → 升级/回滚）
+ 升级由独立的 systemd 任务执行，服务会短暂重启；本分区内容由 app.js 的
+ loadUpgrade/renderUpgrade* 函数渲染 -->
+      <section id="viewUpgrade" class="settings-pane hidden" data-pane="upgrade">
+        <div class="section-head">
+          <h2>系统升级 <span class="license-badge" id="upgradeBadge"></span></h2>
+          <div class="filters">
+            <button class="btn btn-sm" onclick="loadUpgrade()">刷新</button>
+          </div>
+        </div>
+        <div id="upgradeSummary" class="upgrade-ver"></div>
+
+        <section class="u-mt18">
+          <h2>上传升级包</h2>
+          <p class="muted u-text13-mb10" >
+            上传只做<b>校验体检</b>，不会替换程序；可先用它验证发行包与本机是否兼容。
+          </p>
+          <!-- 文件框 / 上传按钮 / 进度文案同排一行，省掉一层高度（「升级不影响授权」见帮助手册升级章节） -->
+          <div class="upgrade-upload-row">
+            <input type="file" id="upgradeFile" accept=".gz,.tgz">
+            <button class="btn" id="upgradeUploadBtn">上传并校验</button>
+            <span class="muted u-text13" id="upgradeUploadMsg" ></span>
+          </div>
+          <div class="upgrade-bar hidden" id="upgradeUploadBar"><i id="upgradeUploadFill"></i></div>
+          <div id="upgradeInspect"></div>
+        </section>
+
+        <section class="u-mt18">
+          <h2>已上传的升级包</h2>
+          <div id="upgradePackages"></div>
+        </section>
+        <!-- 升级日志块已移除：日志落盘 /etc/pvewebtools/upgrade.log，需要时用 tail 查看
+ （后端 /api/upgrade/log 仍保留，供 curl / 排障取尾部；不再占界面） -->
+      </section>
+
+      <!-- 分区三：帮助手册（静态文案，按章节折叠；描述与 README 保持一致） -->
+      <section id="viewHelp" class="settings-pane hidden" data-pane="help">
+        <div class="section-head">
+          <h2>帮助手册</h2>
+          <span class="muted u-text13" >PVE WebTools 使用指引</span>
+        </div>
+
+        <details class="help-sec" open>
+          <summary>快速上手</summary>
+          <ul>
+            <li>浏览器访问 <span class="mono">https://&lt;PVE_IP&gt;:8899</span>（默认端口 8899）；默认账号 <span class="mono">pvewebtools</span>（只输 pvewebtools 等价 pvewebtools@pve）。</li>
+            <li>顶部五个页签：<b>概览 / 节点管理 / 工具箱 / 传输中心 / 执行日志</b>。</li>
+            <li>概览每 10 秒自动刷新；右上角「刷新」可手动拉取最新数据。</li>
+            <li>右上角「<b>设置</b>」集中了系统升级与本帮助手册。</li>
+            <li>所有写配置的操作执行前都会自动备份，对应工具内提供「从备份恢复」，改坏了可随时还原。</li>
+          </ul>
+        </details>
+
+        <details class="help-sec">
+          <summary>各页签能做什么</summary>
+          <ul>
+            <li><b>概览</b>：节点 CPU / 内存 / 硬盘 / 网卡 / 显卡实时概览；虚拟机与容器统一列表，支持搜索筛选、分页、批量启停、开机自启开关、重命名、查看完整配置。</li>
+            <li><b>节点管理</b>：集群节点列表；「+ 加入节点」把新 PVE 主机拉入当前集群，并自动完成共享存储挂载与 vBIOS 同步；卡片行尾可「重启节点」（需重启生效的改动用，需输入确认词「重启节点」），以及按节点角色显示的共享存储修复——客户端节点是「修复NFS客户端」（重挂 NFS 并铺 vBIOS 软链），共享存储导出端是「修复 NFS 服务端」（装/起 NFS 服务、写 /etc/exports 后重新导出）。</li>
+            <li><b>节点管理 · 临时取得仲裁</b>：两台集群里一台宕机时，另一台会失去仲裁，PVE 把 <span class="mono">/etc/pve</span> 置为只读，于是<b>建机、改配置等写操作全部失败</b>（报 no quorum）。此时可在节点列表页顶部提示条或离线节点行点「<b>临时取得仲裁</b>」（等价的 <span class="mono">pvecm expected</span>），把预期票数下调到在线节点数，立刻恢复写操作。它<b>只改运行时票数</b>：不改集群配置、不删节点、不影响任何虚机，corosync 重启后自动失效；失联节点恢复后请点「<b>恢复正常仲裁</b>」还原。出于安全，该按钮仅在<b>在线与不可达节点数相等</b>（偶数集群恰好掉一半）时出现——此时对面票数不足达标门槛、不会双写；奇数集群（3 台及以上）不提供该入口，掉 1 台本来就仍有仲裁。</li>
+            <li><b>工具箱</b>：按分类排列的运维工具，可搜索；高危操作需输入工具名确认。</li>
+            <li><b>传输中心</b>：向共享存储上传虚机模板 / 云镜像 / 磁盘镜像 / vBIOS ROM；下载官方云镜像与 LXC 容器模板；浏览并批量删除存储内容。</li>
+            <li><b>执行日志</b>：工具箱任务历史、步骤时间线与完整日志回看，可按状态筛选、按时间批量清理。</li>
+          </ul>
+        </details>
+
+        <details class="help-sec">
+          <summary>工具箱怎么用</summary>
+          <ul>
+            <li>进入「工具箱」，左侧按分类列出全部工具，顶部搜索框可按工具名过滤。分类为 <b>日常优化 / 启动与内核 / 硬件直通 / 虚机/容器运维 / 网络工具 / 存储与磁盘 / 诊断与救砖</b>（Pro 版另有高级玩法，源码版另有开发版）；多数分类顶部有一个「一键」组合工具，可一次完成该分类的常用优化。</li>
+            <li>使用步骤：点选工具 → 弹窗内填写参数 → 点「执行」。按风险分级确认：<span class="risk info">只读</span> 直接执行；<span class="risk low">普通</span> 弹窗内确认一次；<span class="risk high">高危</span> 须原样输入工具名（服务端校验）。</li>
+            <li>部分工具会给出<b>前置依赖提示</b>（例如更新软件包前建议先更换软件源），按提示顺序执行可避免失败。</li>
+            <li>弹窗顶部的「<b>执行节点</b>」决定任务在哪台机器上跑（默认本机＝控制机，也可选其它集群节点）。虚机/容器类操作（快照、克隆、备份、删除、直通、调内核参数等）用的是节点本地的 <span class="mono">qm/pct</span>，<b>只能作用于执行节点上的虚机</b>，所以「虚机/容器（VMID）」下拉<b>只列执行节点上的对象</b>：要操作别的节点上的虚机，请先切换执行节点。选错会被服务端直接拦下（给出该虚机属于哪个节点），不会再出现「界面显示成功、其实什么都没做」。</li>
+            <li>耗时操作在后台执行，弹窗内实时增量显示日志；关闭弹窗任务照常继续，之后到「执行日志」查看结果。</li>
+          </ul>
+        </details>
+
+        <details class="help-sec">
+          <summary>建一台虚拟机</summary>
+          <p style="font-size:13px;font-weight:600;margin-bottom:6px">① 模板快速建机（以 .vma 虚机模板为原料）</p>
+          <ol>
+            <li>「传输中心 → 上传文件」选「虚机模板」，把 <span class="mono">.vma / .vma.zst</span> 上传到共享存储。</li>
+            <li>「工具箱 → 虚机/容器运维 → 模板快速建机」，选中刚上传的模板。</li>
+            <li>填写 CPU / 内存 / 名称，按需调整 BIOS、机型与数据盘后创建。</li>
+          </ol>
+          <p class="u-subhead">② 云镜像建机（Cloud-Init 自动初始化）</p>
+          <ol>
+            <li>「传输中心 → 获取云镜像」选择版本下载，或上传已有云镜像。</li>
+            <li>「工具箱 → 虚机/容器运维 → 云镜像建机」，选中镜像并填写 CPU / 内存 / 名称。</li>
+            <li>勾选 Cloud-Init，填写主机名、登录用户与密码、IP（DHCP 或静态）、DNS。</li>
+            <li>创建后首次启动自动完成初始化，并安装启用 qemu-guest-agent。</li>
+          </ol>
+          <p class="u-subhead">③ 创建 LXC 容器（基于已下载模板）</p>
+          <ol>
+            <li>「传输中心 → 获取 LXC 模板」选版本下载到存储（建议共享存储 pvewebtools）。</li>
+            <li>「工具箱 → 虚机/容器运维 → 创建 LXC 容器」，选中模板并填写 CPU / 内存 / 主机名。</li>
+            <li>按需设置网桥 / 静态 IP（DHCP 或静态）/ root 密码、是否非特权容器，勾选「部署后启动」。</li>
+          </ol>
+          <p class="muted u-text125-mt10" >模板与镜像文件存放在共享存储，集群内任一节点建机都能直接取用。</p>
+        </details>
+
+        <details class="help-sec">
+          <summary>硬件直通（显卡 / 网卡 / PCIe / USB / 磁盘）</summary>
+          <ol>
+            <li>执行「直通前置检查」，确认 CPU 虚拟化、IOMMU、分组隔离与驱动占用情况。</li>
+            <li>首次使用先执行「开启硬件直通」（配置 IOMMU + vfio + 驱动屏蔽），完成后<b>重启宿主机</b>。</li>
+            <li>重启后按设备类型选择直通工具：网卡 / 显卡 / PCIe / USB / 磁盘；核显可选「仅计算」纯直通或（Intel）「显示输出 legacy-igd」，独显可选 x-vga 主显卡与 vBIOS ROM。</li>
+            <li>需要 vBIOS 时，先在「传输中心 → 上传文件」选 vBIOS 类型上传，工具会自动同步到各节点。</li>
+            <li>同隔离组内的设备会<b>自动整组直通</b>（组内共享 IOMMU 上下文，无法只挑其中一个）。执行前有一道<b>安全闸门</b>：若整组会连带<b>承载宿主在用盘的存储控制器</b>（AMD APU 平台的核显与 FCH SATA 常同组），或目标存储控制器正被 vfio 占用、无法确认安全，工具会<b>直接拒绝执行并说明原因</b>，不会关机、也不会改配置。</li>
+          </ol>
+          <p class="muted u-text125-mt10" >不再需要直通时：先用「移除 VM 全部直通」清掉 VM 上的挂载，再用「回收直通设备」解绑 vfio 并装回原驱动；默认也会移除该驱动的屏蔽配置，重启后能自动加载，无需再单独处理。</p>
+        </details>
+
+        <!-- 高级玩法（Pro 专属）：Lite 版隐藏；data-edition 由 applyEditionVisibility 按运行档位显隐 -->
+        <details class="help-sec hidden" data-edition="pro">
+          <summary>高级玩法 · 显卡 vGPU</summary>
+          <p style="font-size:13px;font-weight:600;margin:0 0 6px">NVIDIA 专业卡（T4 / A10 / A40 / L4 / L40 等）</p>
+          <ol>
+            <li>「传输中心 → 上传文件」选「vGPU 宿主机物料」，上传宿主机驱动
+              （<span class="mono">NVIDIA-Linux-x86_64-&lt;版本&gt;-vgpu-kvm.run</span>）。</li>
+            <li>「工具箱 → 高级玩法 → <b>N卡 vGPU 宿主机准备</b>」：先执行「阶段一：环境准备」，
+              <b>重启宿主机</b>后再执行「阶段二：安装驱动」。</li>
+            <li><b>N卡 vGPU 分配</b>：选虚机与 mdev 规格写入配置；mdev 不能热插拔，
+              运行中的虚机会自动关机 → 改配置 → 开机。</li>
+            <li><b>N卡 vGPU 部署与使用</b>：部署授权服务（DLS）并给出客户机取授权命令；
+              虚机内还需装同分支的 guest 驱动。</li>
+          </ol>
+
+          <p class="u-subhead">Intel 核显（GVT-g / SR-IOV）</p>
+          <ol>
+            <li><b>Intel 核显 vGPU</b> → 「查看状态与能力（只读）」：先体检，并确认本机该走 SR-IOV 还是 GVT-g。</li>
+            <li>「开启核显 vGPU」（可指定技术路线与 VF 数量）→ <b>重启宿主机</b>；不再需要时用「关闭并还原」。</li>
+            <li>「分配虚拟显卡给虚机」后用「验证实例是否真的可用」确认；不需要时「从虚机回收虚拟显卡」。</li>
+          </ol>
+          <p class="muted u-text125-mt10" >两条流程都会改动内核启动参数或虚机配置，执行前请确认宿主机可随时重启。</p>
+        </details>
+
+
+
+        <details class="help-sec">
+          <summary>常见问题（按现象找工具）</summary>
+          <p style="font-size:13px;font-weight:600;margin:0 0 6px">服务与系统</p>
+          <ul>
+            <li><b>网页打不开 / 8006 端口不通</b> → 「诊断与救砖 → PVE 服务诊断」查看核心服务状态，并按依赖顺序一键重启。</li>
+            <li><b>系统不对劲但不知道哪里出错</b> → 「诊断与救砖 → 错误日志速查」聚合 journal + dmesg + 失败单元。</li>
+            <li><b>WebUI 界面异常 / 虚拟机启动报组件错</b> → 「诊断与救砖 → 官方组件恢复」重装 WebUI 或 pve-qemu-kvm。</li>
+            <li><b>忘记 PVE 登录密码</b> → 「日常优化 → 重置 PVE 密码」。</li>
+            <li><b>系统盘快满、空间告急</b> → 「日常优化 → 一键释放系统空间」。</li>
+            <li><b>根分区不够用（/ 快满）</b> → 「日常优化 → PVE 根分区扩容」（删 swap 扩容根，或删 local-lvm 并入 local）。</li>
+            <li><b>更新软件包失败 / 下载太慢</b> → 「日常优化 → 更换软件源和 LXC 源」换国内源后重试。</li>
+            <li><b>不想让系统自动更新</b> → 「日常优化 → 系统更新与禁止」选「禁止系统更新」。</li>
+            <li><b>想立刻打补丁 / 更新软件包</b> → 同一个工具选「立即更新系统」。</li>
+            <li><b>每次登录都弹订阅提示</b> → 「日常优化 → 删除订阅弹窗」。</li>
+            <li><b>风扇吵、功耗高</b> → 「日常优化 → CPU 调频与节能设置」（性能 / 均衡 / 省电，可持久化，Intel/AMD/ARM 自适应）。</li>
+            <li><b>SSH 登录慢、输入卡顿</b> → 「日常优化 → 优化 SSH 连接速度」。</li>
+            <li><b>系统时间不准 / 时区不对</b> → 「日常优化 → 时间同步」（NTP 同步可选国内源 / 主板 RTC 校准 / 时区修改）。</li>
+            <li><b>想一次做完常用优化</b> → 「日常优化 → 一键优化」（组合工具）。</li>
+            <li><b>要把 PVE 8 升到 9</b> → 「日常优化 → PVE 8.x 升级到 9.x」。</li>
+            <li><b>想确认当前版本 / 形态（Lite / Pro / 源码版）</b> → 本弹窗标题旁的版本胶囊，或「系统升级」分区的「当前版本」。</li>
+          </ul>
+          <p class="u-subhead">启动与引导</p>
+          <ul>
+            <li><b>开机进不了系统 / 引导项丢失</b> → 先用「启动与内核 → 启动状态检查」看全局（内核、启动参数、直通状态、EFI 注册、现有备份）。</li>
+            <li><b>要加 / 删内核启动参数</b>（iommu、nomodeset 等）→ 「启动与内核 → GRUB 配置」。</li>
+            <li><b>GRUB 改坏了想还原</b> → 「启动与内核 → GRUB 配置」里的「从备份恢复」。</li>
+            <li><b>装了新内核想设为默认启动</b> → 「启动与内核 → 内核配置」（安装 / 设默认启动 / 重启应用）。</li>
+            <li><b>旧内核太多、占系统盘</b> → 「启动与内核 → 内核配置」里的「清理旧内核」。</li>
+            <li><b>EFI 引导项不同步 / ESP 未注册</b> → 「启动与内核 → EFI 引导维护」（BIOS 引导会自动跳过）。</li>
+          </ul>
+          <p class="u-subhead">网络</p>
+          <ul>
+            <li><b>网络不通 / DNS 解析失败 / IPv6 异常</b> → 「网络工具 → 一键网络诊断」一次看全接口、连通性、DNS、IPv6。</li>
+            <li><b>想细查某个地址通不通</b> → 「网络工具 → 连通性测试」（Ping + DNS 解析 / IPv6 就绪度）。</li>
+            <li><b>想先看看当前网络状态</b> → 「网络工具 → 网络信息」（只读，不改配置）。</li>
+            <li><b>改了网卡或网桥配置怕失联</b> → 「网络工具 → 网络配置管理」：改前自动备份，出问题可从备份恢复。</li>
+            <li><b>要新建网桥 / 划 VLAN</b> → 「网络工具 → 网桥与 VLAN」（删除有双重拦截保护）。</li>
+          </ul>
+          <p class="u-subhead">存储与磁盘</p>
+          <ul>
+            <li><b>想知道硬盘健康</b>（SMART / 通电时长 / 温度）→ 「存储与磁盘 → 存储状态总览」的深度体检。</li>
+            <li><b>只想快速看各存储用量</b> → 同一个工具的「快速总览」。</li>
+            <li><b>旧盘要清空重用</b> → 「存储与磁盘 → 磁盘分区与格式化」（擦签名 / 全盘覆写 / SSD 安全擦除，自动拦截在用磁盘）。</li>
+            <li><b>镜像格式不对</b>（raw / qcow2 / vmdk 互转）→ 「存储与磁盘 → 虚机磁盘格式转换」。</li>
+            <li><b>要把虚机迁到 VMware / Hyper-V / 公有云</b> → 「存储与磁盘 → 虚机磁盘导出」，导出后再传走。</li>
+            <li><b>手上已有镜像要变成虚机磁盘</b> → 「存储与磁盘 → 虚机磁盘导入」。</li>
+            <li><b>给虚机加 / 减硬盘</b> → 「存储与磁盘 → 虚机磁盘新增与移除」（自动填空闲槽位；移除可彻底删除或仅卸载保留文件）。</li>
+          </ul>
+          <p class="u-subhead">传输中心</p>
+          <ul>
+            <li><b>要上传虚机模板 / 云镜像 / 磁盘镜像 / vBIOS ROM</b> → 「传输中心 → 上传文件」，按类型选对应目录，上传后集群内各节点都能用。</li>
+            <li><b>想下载官方云镜像</b>（Ubuntu / Debian / Alma / Rocky 等）→ 「传输中心 → 获取云镜像」，选版本即带出下载地址。</li>
+            <li><b>想下载 LXC 容器模板</b>（Debian / Ubuntu / Alpine 等）→ 「传输中心 → 获取 LXC 模板」，选模板与存储后下载，落盘即可在 PVE 建 CT 时选用；列表来自本机 pveam，点「刷新模板列表」拉取上游最新模板。</li>
+            <li><b>共享存储里旧文件太多</b> → 「传输中心 → 存储内容」浏览并批量勾选删除。</li>
+            <li><b>从共享存储建机 / 还原很慢</b> → 看任务日志开头的「[诊断]」：它会比对链路速率与实测吞吐并直接给出结论（100M 网口≈12MB/s 就是物理极限，也可能是服务端导出盘慢或 NFS 单连接）。工具在<b>新挂载 / 修复共享存储</b>时会自动启用 <span class="mono">nconnect=8</span> 多连接（内核或服务端不支持会自动回退，不影响挂载）；已挂载的共享存储要生效，需按诊断给出的方式在维护窗口重挂一次。</li>
+          </ul>
+          <p class="u-subhead">硬件直通</p>
+          <ul>
+            <li><b>想确认能不能直通</b> → 先跑「硬件直通 → 直通前置检查」（CPU 虚拟化 / IOMMU / 分组隔离 / 驱动占用）。</li>
+            <li><b>想知道设备被哪个虚机占用</b> → 「硬件直通 → 直通设备总览」列出所有 VM 的 PCIe / USB / RDM 归属。</li>
+            <li><b>首次开启直通</b> → 「硬件直通 → 开启硬件直通」（IOMMU + vfio + 驱动屏蔽一次配齐，<b>重启后生效</b>）。</li>
+            <li><b>直通后 VM 里不认设备 / 显卡报 Code 43</b> → 「硬件直通 → 显卡直通」，易报 Code 43 的显卡会自动附加推荐参数。</li>
+            <li><b>网卡直通怕宿主机失联</b> → 「硬件直通 → 网卡直通」会自动拦截管理网口，不会让你把管理链路直通出去。</li>
+            <li><b>USB 设备（键鼠 / U 盘）/ 采集卡 / 声卡要给虚机</b> → 「硬件直通 → PCIe/USB 直通」（USB 支持热插）。</li>
+            <li><b>整块硬盘要给虚机</b> → 「硬件直通 → 磁盘直通」：块映射 RDM 兼容性最好，PCIe 方式可读原生 SMART。</li>
+            <li><b>虚机上的直通设备要全部清掉</b> → 「硬件直通 → 移除 VM 全部直通」（运行中的虚机会先自动关机，清完自动开回，PCIe 设备自动归还宿主机、无需重启）。</li>
+            <li><b>设备没人用、宿主机也用不了</b>（概览显示「未使用（可释放）」）→ 「硬件直通 → 回收直通设备」，立即生效、无需重启。</li>
+            <li><b>直通后宿主机装不上驱动</b>（概览显示「无驱动」）→ 「硬件直通 → 回收直通设备」选「仅解除驱动屏蔽」，<b>重启后</b>驱动才会自动加载。</li>
+            <li><b>整套直通都不想要了</b> → 「硬件直通 → 开启硬件直通」选「一键关闭并还原全部直通配置」（含驱动屏蔽，重启生效）。</li>
+            <li><b>直通后宿主机起不来 / 管理口失联</b> → 检查「直通设备总览」确认设备归属；管理网口直通会被工具自动拦截，不要改配置绕过。</li>
+            <li><b>提示「会涉及存储控制器 …已拒绝执行」</b>（显卡 / 网卡整组直通被拦下）→ 该隔离组里混着承载宿主在用盘的存储控制器（AMD APU 核显常与 FCH SATA 同组），整组直通会把宿主盘交给虚机、宿主机随即掉盘。先把 /var/lib/vz 等宿主在用盘迁到别的控制器（如 NVMe 上的存储）再试；设备若还在 vfio 里，先「回收直通设备」还给宿主驱动。</li>
+            <li><b>直通后宿主机磁盘消失 / 虚机开机报 qcow2 Input/output error</b> → 同一成因：整组直通连带走了宿主盘所在的存储控制器。先把直通删掉再排查：<span class="mono">qm set &lt;VMID&gt; -delete hostpci0</span>，确认 <span class="mono">lspci -k</span> 里该控制器已回到 ahci、磁盘重新出现后再开机（每次开机都会重复掉盘，别反复尝试）。</li>
+            <li><b>「回收直通设备」停在「已从 vfio-pci 解绑」不动</b> → 多数是正常等待：装回 ahci / nvme 时内核要逐端口复位并重新识别磁盘，慢时 1~2 分钟。工具已加 180 秒超时与进度提示；真超时多为盘/链路异常，可看 <span class="mono">dmesg</span> 里的 ata 日志，必要时重启宿主机。</li>
+          </ul>
+          <p class="u-subhead">虚机与容器</p>
+          <ul>
+            <li><b>建机慢、要重复建多台</b> → 「虚机/容器运维 → 模板快速建机」（以 .vma 虚机模板建机，自动识别系统）；批量模式会先把模板/镜像<b>预拉取到本机</b>再逐台建机，后续几台直接读本地盘，不受网络存储拖累。</li>
+            <li><b>想让它开机自动初始化</b>（主机名 / 用户密码 / IP / DNS）→ 「虚机/容器运维 → 云镜像建机」勾选 Cloud-Init。</li>
+            <li><b>建 LXC 容器（轻量、共享内核）</b> → 「虚机/容器运维 → 创建 LXC 容器」（基于「获取 LXC 模板」下载的模板，可选非特权容器、设 root 密码与网络）。</li>
+            <li><b>改配置前想留退路 / 改坏了要回滚</b> → 「虚机/容器运维 → 快照」（创建 / 回滚 / 删除）。</li>
+            <li><b>虚机/容器要定时开关机</b> → 「虚机/容器运维 → 定时开关机」。</li>
+            <li><b>要整机备份 / 还原</b> → 「虚机/容器运维 → 备份与还原」（在线备份、可压缩、可指定存储）。</li>
+            <li><b>想复制一台虚机/容器</b> → 「虚机/容器运维 → 克隆虚机/容器/模板」（完整克隆 / 链接克隆）。</li>
+            <li><b>要删虚机/容器（连带磁盘 / 备份）</b> → 「虚机/容器运维 → 删除虚机/容器/模板」。</li>
+            <li><b>虚机起不来、要临时加内核参数</b>（如显卡直通用的 nomodeset）→ 「虚机/容器运维 → 调整虚机内核参数」。</li>
+            <li><b>看不清虚机/容器的完整配置</b>（核数 / 磁盘 / 网卡）→ 概览页点名称查看配置详情。</li>
+            <li><b>要给虚机写备注</b> → 概览列表最右侧「备注」列直接编辑。</li>
+          </ul>
+          <p class="u-subhead">概览与虚机/容器操作</p>
+          <ul>
+            <li><b>虚机/容器很多、要批量启停</b> → 概览页勾选多个虚机/容器后批量启动 / 关机 / 强制停止 / 重启。</li>
+            <li><b>想让某台虚机/容器开机自启</b> → 概览列表「开机自启」列点击切换。</li>
+            <li><b>虚机/容器名字要改</b> → 名称旁的铅笔图标。</li>
+            <li><b>只想看某个节点的虚机/容器</b> → 点节点卡片筛选（或顶部节点标签），再点标签上的 ✕ 清除。</li>
+            <li><b>数据看着不新</b> → 右上角「刷新」手动拉最新（概览本身每 10 秒自动刷新，慢采集项走后台缓存）。</li>
+          </ul>
+          <p class="u-subhead">通用</p>
+          <ul>
+            <li><b>页面提示 Failed to fetch</b> → 若是点「升级 / 回滚」之后出现，属正常：服务正在重启、
+              回执丢在路上，任务通常已被受理（页面会自动轮询确认，不必重复提交）；其它情况多为
+              瞬时并发请求过多或服务未运行，稍后重试即可。</li>
+            <li><b>改完配置没生效</b> → 内核启动参数、硬件直通、网络配置等改动需要重启节点才生效；到「<b>节点管理</b>」对应节点行尾点「<b>重启节点</b>」（需输入确认词「重启节点」）。</li>
+            <li><b>想找回改坏前的配置</b> → 写配置前均有自动备份，对应工具内提供「从备份恢复」。</li>
+            <li><b>任务跑太久想中止</b> → 执行弹窗里的「强制结束」，之后可在「执行日志」查看轨迹。</li>
+            <li><b>执行记录会丢吗</b> → 重启后仍可查，默认保留最近 200 条，可在「执行日志」页按时间批量清理。</li>
+          </ul>
+        </details>
+
+        <details class="help-sec">
+          <summary>系统升级</summary>
+          <ol>
+            <li>「<b>设置 → 系统升级</b>」上传发行包
+              （<span class="mono">pvewebtools-&lt;形态&gt;-&lt;版本&gt;-&lt;日期&gt;.tar.gz</span>）后点「上传并校验」：
+              这一步只做体检、不替换程序，校验不通过不会改动任何文件。</li>
+            <li>校验全绿后点「<b>开始升级并重启服务</b>」：服务短暂重启、页面自动等待恢复，
+              新版本启动失败会<b>自动回滚</b>到升级前版本；要退回上一版，点「回滚到 &lt;旧版本&gt;」（同样会重启）。</li>
+            <li>版本号需<b>大于本机当前版本</b>；装同版本或更低版本会被拦下，需点「允许重装/降级并重新校验」再确认。
+              升级仅替换程序本体，全程不改动配置与数据。</li>
+            <li>提示「不支持自升级」（源码版运行 / 未注册 systemd 服务 / 缺 systemd-run）时，
+              上传校验仍可用；真要升级请用发行包内的 <span class="mono">install.sh</span> 手工部署
+              （不带授权码即沿用原授权码与端口）。</li>
+          </ol>
+        </details>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- 登录门禁：未登录时全屏遮罩，主界面初始化前先校验会话 -->
+<div id="loginMask" class="hidden">
+  <div class="login-card">
+    <h2>登录 PVE WebTools</h2>
+    <p class="login-sub">默认账号 pvewebtools（PVE 内置用户）</p>
+    <div class="login-row">
+      <label>用户名</label>
+      <input id="loginUser" type="text" autocomplete="username" value="pvewebtools" placeholder="pvewebtools" spellcheck="false">
+    </div>
+    <div class="login-row">
+      <label>密码</label>
+      <input id="loginPass" type="password" autocomplete="current-password">
+    </div>
+    <div class="login-row hidden" id="loginOtpWrap">
+      <label>二次验证动态码</label>
+      <input id="loginOtp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位动态码">
+    </div>
+    <div class="login-row hidden" id="loginNewPwWrap">
+      <label>新密码（至少 8 位）</label>
+      <input id="loginNewPw" type="password" autocomplete="new-password">
+    </div>
+    <div class="login-row hidden" id="loginNewPw2Wrap">
+      <label>确认新密码</label>
+      <input id="loginNewPw2" type="password" autocomplete="new-password">
+    </div>
+    <div id="loginPwHint" class="login-hint hidden">首次登录必须修改初始密码后才能进入</div>
+    <button id="btnLogin" class="login-btn">登录</button>
+    <div id="loginErr" class="login-err" role="alert" aria-live="polite"></div>
+  </div>
+</div>
+
+<!-- 操作提示条 -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- 前端脚本：classic script 按序加载（**不是** ES module）——函数与顶层 let 处于同一全局
+ 作用域，index.html 里的内联 onclick 因此照旧可用；改 module 会让这些内联处理器全部失效。
+ 基础设施与页面模块已拆到 js/（M3）：顺序为 状态 → 展示层 → 请求层 → 页面模块 → 入口 -->
+<!-- 中文文案字典（T4.4，与 core/web/messages.py 同步）：先于各模块加载，定义 window.t / window.MESSAGES -->
+<script src="zh.js"></script>
+<script src="js/state.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/api.js"></script>
+<script src="js/overview.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/toolbox.js"></script>
+<script src="js/transfer.js"></script>
+<script src="js/passthrough.js"></script>
+<script src="js/logs.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
