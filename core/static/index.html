@@ -875,15 +875,6 @@
           </ul>
         </details>
 
-        <details class="help-sec">
-          <summary>手工升级</summary>
-          <ol>
-            <li>升级方式为<b>替换程序目录后重启服务</b>：拉取新版本代码（或解压新发行包）覆盖部署目录，然后 <span class="mono">systemctl restart pvewebtools</span>。</li>
-            <li>用 <span class="mono">install.sh</span> 部署的，直接再跑一次 <span class="mono">sudo ./install.sh</span> 即可，端口 / 账号 / 证书沿用。</li>
-            <li>配置文件（<span class="mono">/etc/pvewebtools/</span> 下的共享存储配置、<span class="mono">session.secret</span>、日志）不在程序目录内，覆盖不会丢。</li>
-            <li>升级后如需重新登录，属正常现象（<span class="mono">session.secret</span> 变化或端口变化会使旧会话失效），刷新页面重登即可。</li>
-          </ol>
-        </details>
       </section>
     </div>
   </div>
