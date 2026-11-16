@@ -195,8 +195,7 @@ pvewebtools/          # 仓库根（目录名 = 产品名；启动按包路径 p
 ├── scripts/
 │   ├── deploy_source.sh    # 就地注册 systemd 服务（install.sh 内部调用）
 │   ├── lint_shell.py       # bash 脚本静态检查
-│   ├── lint_tool_sources.py# 工具下拉数据源登记检查
-│   └── build_windows_image.bat
+│   └── lint_tool_sources.py# 工具下拉数据源登记检查
 ├── core/             # 产品源码包
 │   ├── web/                 # HTTP 服务、异步任务与各功能路由域（routers/）
 │   ├── pve/                 # PVE 平台交互（pvesh 封装 / 存储供给 / 密码 SSH）
