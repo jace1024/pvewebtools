@@ -45,7 +45,8 @@ python -m core.web.server              # 默认 8899 端口；--no-auth 可关�
 
 ## 贡献许可
 
-本项目以 [GNU GPL v3.0](./LICENSE) 发布。提交贡献即表示你同意：
+本项目以 [GNU GPL v3.0](./LICENSE) 发布（另提供商业许可，见
+[LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md)）。提交贡献即表示你同意：
 
 1. 你拥有所提交内容的版权，或已取得版权人的授权；
 2. 你的贡献以 GPL-3.0 授权给本项目及其使用者；
