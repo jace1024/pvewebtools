@@ -109,15 +109,7 @@
 
 **前置要求**：一台 PVE 8.x / 9.x 宿主机（root 权限，自带 Python 3.9+），无需安装任何依赖。
 
-### 方式一：一行命令装完
-
-在 PVE 主机上以 root 执行。脚本会自己拉取源码，无需先 clone：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jace1024/pvewebtools/main/install.sh | sudo bash
-```
-
-### 方式二：clone 后安装（可指定端口与目录）
+### 方式一：clone 后安装（推荐）
 
 ```bash
 git clone https://github.com/jace1024/pvewebtools.git /opt/pvewebtools-src
@@ -128,6 +120,19 @@ sudo ./install.sh 9000            # 指定端口
 sudo ./install.sh 9000 /opt/pwt   # 指定端口 + 安装目录
 # 提示 Permission denied 时用 sudo bash install.sh 代替
 ```
+
+### 方式二：一条命令（脚本自动拉取源码）
+
+不下载仓库，直接跑安装脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jace1024/pvewebtools/main/install.sh | sudo bash
+```
+
+> 国内网络访问 `raw.githubusercontent.com` 常不通，改用镜像即可（内容相同）：
+> ```bash
+> curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/jace1024/pvewebtools/main/install.sh | sudo bash
+> ```
 
 ### 方式三：把仓库复制过去再装（离线 / 内网）
 

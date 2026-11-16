@@ -6,7 +6,7 @@
 #   ./install.sh 9000       # 指定端口
 #   ./install.sh 9000 /opt  # 指定端口与安装目录
 #
-# 也可以不下载仓库直接跑（脚本会自己拉源码）:
+# 也可以不下载仓库直接跑（脚本会自己拉源码；国内可换 ghproxy.net 镜像）:
 #   curl -fsSL https://raw.githubusercontent.com/jace1024/pvewebtools/main/install.sh | sudo bash
 #
 # 做的事：把程序目录同步到安装目录 → 注册 systemd 服务（开机自启 + 崩溃自动拉起）
