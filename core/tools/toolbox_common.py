@@ -71,6 +71,10 @@ _err_trap() {
   case "$c" in
     true|false|:|""|*"|| true"*|*"|| :"*) return 0 ;;
   esac
+  # 退出码 75 是「已写入重启配置、请重跑」的约定控制信号（如 K8s 部署的 cgroup v2 修正：
+  # 虚机需重启后重跑），属预期中断而非失败。跳过它，避免被渲染成误导性的「命令执行失败」，
+  # 也避免把整段内联脚本（如 python heredoc）当成错误详情回显。
+  if [ "$rc" -eq 75 ]; then return 0; fi
   # 打到 stderr：jobs.py 用 stderr=STDOUT 合并捕获，日志照常显示；
   # 关键是 stdout 必须纯净，否则会被 $( ) 命令替换当成返回值污染（如迁移测速）
   echo "[错误] 命令执行失败 (退出码 $rc, 函数 $fn, 调用处行 $call_line): $c" >&2
@@ -253,6 +257,62 @@ pw_inc_ip() {
    echo "[错误] 批量静态 IP 递增后超出 1-254 范围（${prefix}.${newlast}）" >&2; return 1
  fi
  echo "${prefix}.${newlast}/${mask}"
+}
+
+# ── 静态 IP 占用检测 ─────────────────────────────────────────────────────────
+# 两层：配置层（扫集群所有虚机/容器的静态 IP 配置，关机也在，不受探活影响，是冲突判定的主依据）
+# + 在线探测（ARP/ping，仅覆盖开机设备，只作提示）。用于批量/重复建机时避免把同一地址写两台。
+# 为什么不能只靠 ping：关机/休眠的机器不回应，纯探活会漏判——而配置层读的是 /etc/pve 配置文件，
+# 与开关机无关，才是“该地址已被占用”的可靠来源。
+_pw_ips_load() {
+  if [ -n "${_PW_IPS:-}" ]; then return 0; fi
+  _PW_IPS=$(
+    local f id name ip
+    for f in /etc/pve/qemu-server/*.conf /etc/pve/nodes/*/qemu-server/*.conf; do
+      [ -f "$f" ] || continue
+      id=$(basename "$f" .conf)
+      name=$(sed -n 's/^name:[[:space:]]*//p' "$f" 2>/dev/null | head -1)
+      for ip in $(sed -n 's/.*ip=\([0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\).*/\1/p' "$f" 2>/dev/null); do
+        printf '%s\tvm:%s\t%s\n' "$ip" "$id" "${name:-}"
+      done
+    done
+    for f in /etc/pve/lxc/*.conf /etc/pve/nodes/*/lxc/*.conf; do
+      [ -f "$f" ] || continue
+      id=$(basename "$f" .conf)
+      name=$(sed -n 's/^hostname:[[:space:]]*//p' "$f" 2>/dev/null | head -1)
+      for ip in $(sed -n 's/.*ip=\([0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\).*/\1/p' "$f" 2>/dev/null); do
+        printf '%s\tct:%s\t%s\n' "$ip" "$id" "${name:-}"
+      done
+    done
+  ) 2>/dev/null
+  return 0
+}
+# 查某 IPv4 是否已被「配置层」占用；占用则打印 "vm:100 (name)" 并返回 0，空闲返回 1
+pw_owner_of() {
+  local ip="$1" line
+  [ -n "$ip" ] || return 1
+  _pw_ips_load
+  line=$(printf '%s\n' "${_PW_IPS:-}" | awk -F'\t' -v ip="$ip" '$1==ip{printf "%s", $2; if($3!="") printf " (%s)", $3; exit}')
+  if [ -n "$line" ]; then
+    printf '%s' "$line"
+    return 0
+  fi
+  return 1
+}
+# 在线探测：ARP 表命中（非 incomplete）或 ping 通，视为当前在线（只对已开机设备有效）
+pw_ip_online() {
+  local ip="${1:-}"
+  [ -n "$ip" ] || return 1
+  if ip neigh show "$ip" 2>/dev/null | grep -qE 'REACHABLE|STALE|DELAY|PROBE'; then return 0; fi
+  ping -c1 -W1 "$ip" >/dev/null 2>&1
+}
+# 判断地址是否「已占用」：$1=ip(无掩码) $2=本批已分配的额外列表(空格分隔，父 shell 追踪用)
+pw_ip_taken() {
+  local ip="$1"
+  [ -n "$ip" ] || return 0
+  if pw_owner_of "$ip" >/dev/null 2>&1; then return 0; fi
+  case " $2 " in *" $ip "*) return 0 ;; esac
+  return 1
 }
 
 # 给已存在的 guest 设置 DNS：逐级兜底，最终失败只警告不中断（DNS 不该让建机/部署失败）。
@@ -1030,6 +1090,68 @@ sanitize_identity() {
 #   pw_guest_grow_root <vmid>  —— 经 QEMU 代理在已开机虚机内执行（模板克隆等注入不了 cloud-init）
 pw_root_expand_body() {
 cat <<'PWEXPAND'
+# ── OpenWrt 专用扩根（x86 镜像）──
+# 通用 Linux 的 findmnt/growpart/apt 路径在 OpenWrt(busybox + opkg) 上大多不存在，故单独处理。
+# 两类官方镜像都覆盖：
+#   * squashfs-combined：/ 是只读 squashfs + overlayfs，真正可写、需要扩的是 /overlay 的底层分区；
+#   * ext4-combined：/ 直接挂在 ext4 分区上。
+if [ -f /etc/openwrt_release ] || command -v opkg >/dev/null 2>&1; then
+  OW_TGT=$(awk '$2=="/overlay"{print $1; exit}' /proc/mounts 2>/dev/null)
+  [ -n "$OW_TGT" ] || OW_TGT=$(awk '$2=="/"{print $1; exit}' /proc/mounts 2>/dev/null)
+  case "$OW_TGT" in
+    /dev/root|/dev/root/*) OW_TGT=$(readlink -f /dev/root 2>/dev/null || echo "$OW_TGT") ;;
+  esac
+  case "$OW_TGT" in
+    /dev/*) ;;
+    *) echo "[disk] openwrt: skip (无法定位底层分区: ${OW_TGT:-空})"; exit 0 ;;
+  esac
+  OW_PART=${OW_TGT##*/}
+  OW_NUM=$(cat "/sys/class/block/$OW_PART/partition" 2>/dev/null)
+  OW_DISK=$(basename "$(dirname "$(readlink -f "/sys/class/block/$OW_PART" 2>/dev/null || echo "")")" 2>/dev/null)
+  case "$OW_DISK" in ''|.) OW_DISK="" ;; esac
+  [ -n "$OW_DISK" ] || OW_DISK=$(echo "${OW_TGT#/dev/}" | sed -E 's/p?[0-9]+$//')
+  if [ -z "$OW_NUM" ] || [ -z "$OW_DISK" ] || [ ! -e "/dev/$OW_DISK" ]; then
+    echo "[disk] openwrt: skip (无法确定磁盘/分区号: disk=${OW_DISK:-?} num=${OW_NUM:-?})"
+    exit 0
+  fi
+  OW_BEFORE=$(df -h /overlay 2>/dev/null | awk 'NR==2{print $2}')
+  [ -n "$OW_BEFORE" ] || OW_BEFORE=$(df -h / 2>/dev/null | awk 'NR==2{print $2}')
+  # 扩分区：growpart 优先，其次 parted；两者都没有时尝试 opkg 安装 parted
+  if ! command -v growpart >/dev/null 2>&1 && ! command -v parted >/dev/null 2>&1; then
+    if command -v opkg >/dev/null 2>&1; then
+      opkg update >/dev/null 2>&1 || true
+      opkg install parted >/dev/null 2>&1 || true
+    fi
+  fi
+  if command -v growpart >/dev/null 2>&1; then
+    growpart "/dev/$OW_DISK" "$OW_NUM" >/dev/null 2>&1 || true
+  elif command -v parted >/dev/null 2>&1; then
+    parted -s "/dev/$OW_DISK" resizepart "$OW_NUM" 100% >/dev/null 2>&1 || true
+    partx -u "/dev/$OW_DISK" >/dev/null 2>&1 || blockdev --rereadpt "/dev/$OW_DISK" >/dev/null 2>&1 || true
+  fi
+  # 扩文件系统：ext* 用 resize2fs，f2fs 用 resize.f2fs；工具缺失时尝试 opkg 安装
+  OW_FS=$(awk -v d="$OW_TGT" '$1==d{print $3; exit}' /proc/mounts 2>/dev/null)
+  [ -n "$OW_FS" ] || OW_FS=$(blkid "$OW_TGT" 2>/dev/null | sed -n 's/.*TYPE="\([^"]*\)".*/\1/p')
+  case "$OW_FS" in
+    ext2|ext3|ext4)
+      command -v resize2fs >/dev/null 2>&1 || { command -v opkg >/dev/null 2>&1 && opkg install e2fsprogs >/dev/null 2>&1 || true; }
+      resize2fs "$OW_TGT" >/dev/null 2>&1 || true ;;
+    f2fs)
+      command -v resize.f2fs >/dev/null 2>&1 || { command -v opkg >/dev/null 2>&1 && opkg install f2fs-tools >/dev/null 2>&1 || true; }
+      resize.f2fs "$OW_TGT" >/dev/null 2>&1 || true ;;
+    *)
+      echo "[disk] openwrt: 未识别的文件系统 (${OW_FS:-未知})，分区已扩但文件系统未扩" ;;
+  esac
+  sleep 1
+  OW_AFTER=$(df -h /overlay 2>/dev/null | awk 'NR==2{print $2}')
+  [ -n "$OW_AFTER" ] || OW_AFTER=$(df -h / 2>/dev/null | awk 'NR==2{print $2}')
+  if [ -n "$OW_BEFORE" ] && [ -n "$OW_AFTER" ]; then
+    [ "$OW_BEFORE" = "$OW_AFTER" ] || echo "[disk] openwrt root expanded: $OW_BEFORE -> $OW_AFTER"
+  else
+    echo "[disk] openwrt: 已尝试扩分区/文件系统（无法读取前后容量，请 df -h 核对）"
+  fi
+  exit 0
+fi
 ROOT_SRC=$(findmnt -n -o SOURCE / | sed 's/\[.*//')
 BEFORE=$(findmnt -n -o SIZE /)
 case "$ROOT_SRC" in
@@ -1079,6 +1201,67 @@ pw_emit_root_expand_runcmd() {
 echo "  - |"
 pw_root_expand_body | sed 's/^/    /'
 }
+#   pw_emit_dhcp_to_static_runcmd —— 以 Cloud-Init runcmd 列表项输出（"  - |" + 4 空格缩进）
+#   首次启动把 DHCP 拿到的地址固定为静态，避免重启/租约续租后地址漂移（kubeadm 等会把地址钉进证书 SAN）。
+#   带哨兵文件 /etc/.dhcp_to_static_done，仅执行一次；按发行版分派 netplan(Ubuntu/Debian) / nmcli(openEuler/RHEL 系)。
+#   仅在「未显式指定静态 IP（PT_IP 为空，即 DHCP 模式）」时由调用方注入。
+pw_dhcp_to_static_body() {
+cat <<'PWDHCP'
+# 首次启动：DHCP 地址固定为静态（仅执行一次，防重启漂移）
+[ -f /etc/.dhcp_to_static_done ] && exit 0
+IFACE=$(ip -o -4 addr show scope global 2>/dev/null | head -1 | awk '{print $2}' | sed 's/://')
+[ -n "$IFACE" ] || { echo '[static] 未找到全局 IPv4 接口，跳过'; exit 0; }
+ADDR=$(ip -o -4 addr show scope global 2>/dev/null | head -1 | awk '{print $4}')
+GW=$(ip route show default 2>/dev/null | head -1 | awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}')
+[ -n "$GW" ] || GW=$(ip route show default 2>/dev/null | head -1 | awk '{print $3}')
+DNS=$(awk '/^nameserver/{print $2}' /etc/resolv.conf 2>/dev/null | paste -sd, -)
+[ -n "$DNS" ] || DNS="223.5.5.5,119.29.29.29"
+OS_ID=$(. /etc/os-release 2>/dev/null; echo "${ID:-linux}" | tr '[:upper:]' '[:lower:]')
+case "$OS_ID" in
+  ubuntu|debian)
+    # 首启动 cloud-init 已用 DHCP 拉起网络（50-cloud-init.yaml 为 dhcp4:true）；这里把该文件挪走（.bak 不被 netplan 加载），
+    # 换成静态配置。不动 cloud-init 的网络托管，避免首启动 DHCP 都起不来、反而读不到地址。
+    [ -f /etc/netplan/50-cloud-init.yaml ] && mv -f /etc/netplan/50-cloud-init.yaml /etc/netplan/50-cloud-init.yaml.bak 2>/dev/null || true
+    {
+      echo "network:"
+      echo "  version: 2"
+      echo "  ethernets:"
+      echo "    $IFACE:"
+      echo "      dhcp4: false"
+      echo "      addresses: [$ADDR]"
+      if [ -n "$GW" ]; then
+        echo "      routes:"
+        echo "        - to: default"
+        echo "          via: $GW"
+      fi
+      echo "      nameservers:"
+      echo "        addresses: [$DNS]"
+    } > /etc/netplan/99-static.yaml
+    netplan apply 2>/dev/null || true
+    ;;
+  openeuler|anolis|centos|rhel|rocky|fedora)
+    CONN=$(nmcli -t -f NAME,DEVICE con show 2>/dev/null | awk -F: -v d="$IFACE" '$2==d{print $1; exit}')
+    [ -n "$CONN" ] || CONN=$(nmcli -t -f NAME con show --active 2>/dev/null | head -1)
+    if [ -n "$CONN" ]; then
+      nmcli con mod "$CONN" ipv4.method manual ipv4.addresses "$ADDR" ipv4.gateway "$GW" ipv4.dns "$DNS" 2>/dev/null || true
+      nmcli con up "$CONN" 2>/dev/null || true
+    else
+      echo "[static] 未找到 $IFACE 的 NetworkManager 连接，跳过"
+    fi
+    ;;
+  *)
+    echo "[static] 未识别发行版($OS_ID)，跳过 DHCP->静态转换"
+    exit 0
+    ;;
+esac
+touch /etc/.dhcp_to_static_done
+echo "[static] 已将 $IFACE 固定为静态 $ADDR (gw=$GW dns=$DNS)"
+PWDHCP
+}
+pw_emit_dhcp_to_static_runcmd() {
+echo "  - |"
+pw_dhcp_to_static_body | sed 's/^/    /'
+}
 # 经 QEMU 代理执行扩根：仅在有代理且 guest-exec 未被禁用的虚机上可用。
 # 全程 best-effort：代理不就绪/被禁用都只提示，绝不让建机流程失败（恒返回 0）。
 pw_guest_grow_root() {
@@ -1103,6 +1286,53 @@ echo "[扩根] 经 QEMU 代理在虚机内扩展分区/文件系统 ..."
 b64=$(pw_root_expand_body | base64 -w0)
 raw=$(qm guest exec "$vmid" --timeout 300 -- bash -c "echo $b64 | base64 -d | bash" 2>&1 || true)
 # 不同 PVE 版本的 out-data 可能是 base64 原文，也可能是已解码文本：按内容自适应
+printf '%s' "$raw" | python3 -c '
+import base64,json,re,sys
+raw=sys.stdin.read()
+try:
+    d=json.loads(raw) or {}
+except Exception:
+    print(raw.strip()); raise SystemExit(0)
+def t(s):
+    if not s: return ""
+    x="".join(s.split())
+    if len(x)>=8 and len(x)%4==0 and re.fullmatch(r"[A-Za-z0-9+/]+={0,2}",x):
+        try:
+            y=base64.b64decode(x,validate=True).decode("utf-8")
+            if y and all(c in "\r\n\t" or 32<=ord(c)<127 for c in y): return y
+        except Exception: pass
+    return s
+o=t(d.get("out-data") or ""); e=t(d.get("err-data") or "")
+if o: print(o)
+if e: print(e)
+' 2>/dev/null || true
+return 0
+}
+# 经 QEMU 代理执行 DHCP→静态固定：仅在有代理且 guest-exec 未被禁用的虚机上可用。
+# 用途：模板预初始化时 cloud-init 可能不重跑、user-data 里的 runcmd 不执行，故首启后由代理兜底执行同样的转换。
+# 脚本本体复用 pw_dhcp_to_static_body，带哨兵文件仅执行一次，故与 cloud-init runcmd 二选一、互不冲突。
+# 全程 best-effort：代理不就绪/被禁用都只提示，绝不让建机流程失败（恒返回 0）。
+pw_guest_fix_static() {
+local vmid="$1" i err b64 raw
+[ -n "$vmid" ] || return 0
+for i in $(seq 1 10); do
+  if err=$(timeout 5 qm guest exec "$vmid" -- true 2>&1 >/dev/null); then
+    err=""
+    break
+  fi
+  if echo "$err" | grep -qi 'guest-exec has been disabled'; then
+    echo "[静态IP] 虚机内 guest-exec 被禁用，跳过自动固定；可在系统内手动设静态 IP"
+    return 0
+  fi
+  sleep 3
+done
+if [ -n "$err" ]; then
+  echo "[静态IP] QEMU 代理未就绪（30s），跳过自动固定；可在系统内手动设静态 IP"
+  return 0
+fi
+echo "[静态IP] 经 QEMU 代理在虚机内把 DHCP 地址固定为静态 ..."
+b64=$(pw_dhcp_to_static_body | base64 -w0)
+raw=$(qm guest exec "$vmid" --timeout 300 -- bash -c "echo $b64 | base64 -d | bash" 2>&1 || true)
 printf '%s' "$raw" | python3 -c '
 import base64,json,re,sys
 raw=sys.stdin.read()
@@ -1671,9 +1901,9 @@ pw_cache_use() {
   return 0
 }
 
-# ── 装应用前自动测速选源（通用能力：所有社区脚本统一走）──
-# 思路：脚本里那套「连通性勾」不可信（A 主机通≠到下载镜像快），故直接按真实下载速度挑最快。
-# 对 Debian/Ubuntu 等 apt 应用挑最快 apt 源；对 gentoo 等源码编译型系统挑最快 distfiles/rsync。
+# ── 换源前自动测速选源（「更换软件源和 LXC 源」使用）──
+# 思路：那套「连通性勾」不可信（A 主机通≠到下载镜像快），故直接按真实下载速度挑最快。
+# 按镜像是 apt 源逐项实测下载速度取最快。
 # 仅实测 IPv4（用户环境 IPv6 常不通/抽风，双栈探测会显著拖慢选源）。
 
 # 给定镜像表 JSON、基准字段、探测路径，并发实测各镜像 IPv4 下载速度取最快，
@@ -1716,59 +1946,6 @@ v = tbl.get(best, {})
 print("KEY=%s" % shlex.quote(best))
 for f, val in v.items():
     print("%s=%s" % (f, shlex.quote(val)))
-PY
-}
-
-# 写入通用镜像注入脚本（第三方社区脚本 source 后，在首次包管理同步前改写容器内源）。
-# 值由安装启动器经环境变量 PW_* 传入；无对应变量时注入脚本为空操作，绝不破坏安装。
-os_mirror_inject_write() {
-  mkdir -p /usr/local/community-scripts
-  cat > /usr/local/community-scripts/os-mirror-inject.sh <<'INJ'
-#!/bin/bash
-# PVEWEBTOOLS 装前自动测速选源注入（值由启动器经环境变量 PW_* 传入）
-_ct="${CTID:-${var_ctid:-}}"
-[ -n "$_ct" ] || exit 0
-
-# Debian/Ubuntu：apt 源指向测速最快镜像，覆盖模板自带官方源
-if [ -n "${PW_APT_DEBIAN:-}" ]; then
-  _codename=$(pct exec "$_ct" -- sh -c 'grep "^VERSION_CODENAME=" /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d "\"" | head -1' 2>/dev/null)
-  [ -n "$_codename" ] || _codename=bookworm
-  pct exec "$_ct" -- sh -c "mkdir -p /etc/apt/sources.list.d && printf '%s\n' 'deb ${PW_APT_DEBIAN} ${_codename} main contrib non-free non-free-firmware' 'deb ${PW_APT_SECURITY} ${_codename}-security main contrib non-free non-free-firmware' > /etc/apt/sources.list.d/pvewebtools.list && rm -f /etc/apt/sources.list && { [ -n '${PW_PREFER_IPV4:-}' ] && echo 'precedence ::ffff:0:0/96 100' >> /etc/gai.conf; }" 2>/dev/null \
-    || echo "[提示] apt 镜像注入未生效（容器未就绪或变量名不符）"
-fi
-
-# Gentoo：GENTOO_MIRRORS + sync-uri + 优先 IPv4
-if [ -n "${PW_GENTOO_MIRRORS:-}" ]; then
-  pct exec "$_ct" -- sh -c 'mkdir -p /etc/portage/repos.conf; m="'"${PW_GENTOO_MIRRORS}"'"; s="'"${PW_GENTOO_SYNC}"'"; if grep -q "^GENTOO_MIRRORS" /etc/portage/make.conf 2>/dev/null; then sed -i "s#^GENTOO_MIRRORS.*#GENTOO_MIRRORS=\"$m\"#" /etc/portage/make.conf; else echo "GENTOO_MIRRORS=\"$m\"" >> /etc/portage/make.conf; fi; [ -n "$s" ] && sed -i "s#rsync://[^ ]*/gentoo-portage#$s#" /etc/portage/repos.conf/gentoo.conf 2>/dev/null; [ -n "'"${PW_PREFER_IPV4}"'" ] && echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf' 2>/dev/null \
-    || echo "[提示] Gentoo 镜像注入未生效（容器未就绪或变量名不符）"
-fi
-INJ
-}
-
-# 给第三方社区脚本注入 source 钩子（幂等）：在首个 apt/emerge/apk 同步行前插入，
-# 使其安装前改写容器内源。找不到锚点则插到文件末尾前一行（仍不破坏脚本运行）。
-os_mirror_patch() {
-  local f="$1"
-  [ -f "$f" ] || return 0
-  grep -q "os-mirror-inject.sh" "$f" 2>/dev/null && return 0
-  python3 - "$f" <<'PY'
-import sys, re
-f = sys.argv[1]
-s = open(f, encoding="utf-8", errors="replace").read()
-if "os-mirror-inject.sh" in s:
-    sys.exit(0)
-marker = 'source /usr/local/community-scripts/os-mirror-inject.sh  # PVEWEBTOOLS auto-mirror\n'
-lines = s.split("\n")
-ins = -1
-pat = re.compile(r'\b(apt-get\s+update|apt\s+update|apt-get\s+install|apt\s+install|emerge\b[^\n]*--sync|\bemaint\b|apk\s+update|apk\s+add)\b')
-for i, l in enumerate(lines):
-    if pat.search(l):
-        ins = i
-        break
-if ins < 0:
-    ins = max(0, len(lines) - 1)
-lines.insert(ins, marker)
-open(f, "w", encoding="utf-8").write("\n".join(lines))
 PY
 }
 
@@ -1875,33 +2052,3 @@ MIRRORS = {
        "ct": "",
    },
 }
-
-# Gentoo 源码编译型系统的镜像候选表（供「装应用前自动测速选源」使用）。
-# distfiles = 源码/软件包下载基址（写入容器 /etc/portage/make.conf 的 GENTOO_MIRRORS）；
-# rsync    = Portage 树同步地址（写入 /etc/portage/repos.conf/gentoo.conf 的 sync-uri）。
-# 仅收录「实测有 Gentoo 官方镜像」的站点；不保证有 gentoo 的（aliyun/tencent 等）一律不列，
-# 避免把 GENTOO_MIRRORS 配成空/失效地址。测速时按 distfiles 基址实测 IPv4 速度取最快。
-GENTOO_MIRRORS = {
-    "tuna": {
-        "label": "清华 TUNA",
-        "distfiles": "https://mirrors.tuna.tsinghua.edu.cn/gentoo",
-        "rsync": "rsync://mirrors.tuna.tsinghua.edu.cn/gentoo-portage",
-    },
-    "ustc": {
-        "label": "中科大 USTC",
-        "distfiles": "https://mirrors.ustc.edu.cn/gentoo",
-        "rsync": "rsync://mirrors.ustc.edu.cn/gentoo-portage",
-    },
-    "bfsu": {
-        "label": "北外 BFSU",
-        "distfiles": "https://mirrors.bfsu.edu.cn/gentoo",
-        "rsync": "rsync://mirrors.bfsu.edu.cn/gentoo-portage",
-    },
-    "official": {
-        "label": "官方源",
-        "distfiles": "https://distfiles.gentoo.org",
-        "rsync": "rsync://rsync.gentoo.org/gentoo-portage",
-    },
-}
-
-

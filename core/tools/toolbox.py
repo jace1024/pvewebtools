@@ -15,26 +15,15 @@ import json
 
 import shlex
 
-import os
-
-import importlib.util
+import importlib
 import importlib.resources as ires
 
 from pathlib import Path
 
-_env_ed = os.environ.get("PVE_WEBTOOLS_EDITION")
+# 工具集档位：随 /api/tools 的 edition 字段下发给前端展示
+EDITION = "lite"
 
-if _env_ed:
-   EDITION = _env_ed.lower()
-else:
-   EDITION = "pro" if importlib.util.find_spec("core.tools.toolbox_pro") else "lite"
-
-try:
-   from edition import EDITION as _BUILD_EDITION
-except ImportError:
-   _BUILD_EDITION = ""
-
-from core.tools.toolbox_common import COMMON_HELPERS, MIRRORS, GENTOO_MIRRORS
+from core.tools.toolbox_common import COMMON_HELPERS, MIRRORS
 
 CATEGORIES_BASE = [
    {"id": "optimize", "name": "日常优化", "icon": "⚡"},
@@ -46,13 +35,11 @@ CATEGORIES_BASE = [
    {"id": "rescue", "name": "诊断与救砖", "icon": "🚑"},
 ]
 
-CATEGORY_PRO = {"id": "advanced", "name": "高级玩法", "icon": "🚀"}
-
-CATEGORIES = CATEGORIES_BASE + ([CATEGORY_PRO] if EDITION == "pro" else [])
+CATEGORIES = list(CATEGORIES_BASE)
 
 def _resolve_script(tool):
     """外置脚本解析：声明了 script_file 的工具，从 core/tools/scripts/{id}.sh 读取正文
-    覆盖 script（源码模式读物理文件；Nuitka 数据文件经 importlib.resources 读取）。
+    覆盖 script（源码模式读物理文件；打包分发时经 importlib.resources 读取）。
     内联 script 作为回退，兼容尚未外置的工具。"""
     sf = tool.get("script_file")
     if sf:
@@ -79,29 +66,14 @@ for _mod_name in _BASE_MODULES:
     _mod = importlib.import_module("core.tools." + _mod_name)
     TOOLS_BASE.extend(getattr(_mod, "TOOLS", []))
 
-try:
-   from core.tools.toolbox_pro import TOOLS_PRO
-except ImportError:
-   TOOLS_PRO = []
-
-try:
-   from core.tools.toolbox_dev import TOOLS_DEV
-except ImportError:
-   TOOLS_DEV = []
-
-CATEGORY_DEV = {"id": "dev", "name": "开发版", "icon": "🧪"}
-
-if TOOLS_DEV:
-   CATEGORIES = CATEGORIES + [CATEGORY_DEV]
-
-TOOLS = TOOLS_BASE + (TOOLS_PRO if EDITION == "pro" else []) + TOOLS_DEV
+TOOLS = TOOLS_BASE
 
 # 兜底：工具声明了、但分类表里没有的分类要补上，否则这些工具在前端无处可去会静默消失
-# （前端严格按 categories 分组渲染）。典型场景：开发版工具挂到「高级玩法」下，而当前以
-# lite 形态运行（EDITION != pro 时 CATEGORY_PRO 不进表）。
-for _cat in (CATEGORY_PRO, CATEGORY_DEV):
-   if _cat not in CATEGORIES and any(t["category"] == _cat["id"] for t in TOOLS):
-      CATEGORIES = CATEGORIES + [_cat]
+# （前端严格按 categories 分组渲染）。
+for _t in TOOLS:
+   _cid = _t.get("category")
+   if _cid and not any(c["id"] == _cid for c in CATEGORIES):
+      CATEGORIES = CATEGORIES + [{"id": _cid, "name": _cid, "icon": "🧩"}]
 
 # 外置脚本：声明了 script_file 的工具，用 core/tools/scripts/{id}.sh 正文覆盖 script
 for _t in TOOLS:
@@ -134,18 +106,13 @@ NODE_SCOPED_SOURCES = {
     "net_backups", "nic", "pci_generic", "phys_nics", "usb", "vfio_devices", "vlans",
 }
 GUEST_OWNED_SOURCES = {"guests", "guests_all"}
-GUEST_NODE_SOURCES = {"vm_disks", "vgpu_gpus", "vgpu_types"}
+GUEST_NODE_SOURCES = {"vm_disks"}
 NODE_AGNOSTIC_SOURCES = {
     "cloud_images", "deploy_sources", "disk_upload", "lxc_templates", "vbios_roms",
-    "vgpu_drivers", "vgpu_patches", "vgpu_unlock_libs",
-    # community_scripts：社区脚本(community-scripts)可安装应用清单，读本机仓库内容
-    # （默认 <pvewebtools 家目录>/community-scripts），与执行节点无关；
-    # 数据源见 server.py /api/community-scripts/list
-    "community_scripts",
     # nodes：目标节点下拉（迁移用）。集群成员表与「谁在执行」无关，任何节点看到的都一致，
     # 因此不带 ?node=、也不按执行节点过滤；数据源见 server.py /api/nodes
     "nodes",
-    # docker_versions：Docker 引擎稳定版清单（「虚机内装 Docker」版本下拉）。抓 docker-ce
+    # docker_versions：Docker 引擎稳定版清单（「一键安装Docker」版本下拉）。抓 docker-ce
     # 仓库 static/stable 目录（服务端缓存 6h），与执行节点/虚机发行版无关；
     # 数据源见 server.py /api/docker-versions
     "docker_versions",
@@ -244,11 +211,11 @@ def list_tools():
        if t.get("tag"):
            item["tag"] = t["tag"]  # 自定义标签文案（如「必做」，替代默认「推荐」）
        if t.get("hidden"):
-           item["hidden"] = t["hidden"]  # 隐藏底层工具（如云镜像的 Linux/Windows 子工具），仅合成入口可见
+           item["hidden"] = t["hidden"]  # 隐藏底层工具（只由组合工具间接调用时使用）
        if t.get("disabled"):
-           item["disabled"] = True  # 占位卡片（如「高级玩法 → 即将开放」）：前端置灰、点击只提示，不可执行
+           item["disabled"] = True  # 占位卡片：前端置灰、点击只提示，不可执行
        out.append(item)
-   return {"categories": CATEGORIES, "tools": out, "edition": _BUILD_EDITION}
+   return {"categories": CATEGORIES, "tools": out, "edition": EDITION}
 
 def validate_params(tool, raw_params):
    """逐项校验用户参数，全部通过才返回干净的参数字典（早返回抛错）"""
@@ -361,11 +328,6 @@ def build_env(tool, clean_params):
                env["m_security"] = MIRRORS["official"]["security"]
            else:
                env["m_security"] = mirror["security"]
-   # 社区脚本安装：把镜像候选表传给脚本，由安装流程在目标节点实测挑最快再注入容器。
-   # apt_table 供 Debian/Ubuntu 等应用挑最快 apt 源；gentoo_table 供 gentoo 等源码编译型系统。
-   if tool["id"] == "community_scripts":
-       env["apt_table"] = json.dumps(MIRRORS, ensure_ascii=False)
-       env["gentoo_table"] = json.dumps(GENTOO_MIRRORS, ensure_ascii=False)
    return env
 
 def build_script(tool):

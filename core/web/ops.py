@@ -1,4 +1,8 @@
-"""ApiHandler 的操作方法层（M2/T2.6 深化第七批）：集群/节点操作、工具运行与参数校验、后台下载线程、存储内容删除。 这些是「处理入口调用的动作」而非 HTTP 入口本身；搬成独立 mixin 后 server.py 只剩类骨架与路由分发。 与 handlers.HandlerMixin 同为 ApiHandler 的基类，方法体未改、跨 mixin 可达。"""
+"""ApiHandler 的操作方法层（OpsMixin）：集群/节点操作、工具运行与参数校验、后台下载线程、存储内容删除。
+
+这些是「处理入口调用的动作」而非 HTTP 入口本身；与 ``handlers.HandlerMixin`` 同为
+``ApiHandler`` 的基类，跨 mixin 可达。
+"""
 
 import json
 import os
@@ -11,11 +15,10 @@ import time
 import urllib.parse
 import urllib.request
 
-from core.pve import ssh
-from core.pve import pve_api, pve_api as backend, storage_provision
+from core.pve import pve_api, pve_api as backend, ssh, storage_provision
 from core.tools import toolbox
 from core.web import jobs
-from core.web.handlers import _backup_dirs_merged, _decompress_file, _list_template_backup_files, _node_backup_files, _storage_role, collect_nodes_cached, list_backup_storages, list_byid_disks, list_community_scripts, list_disk_storages, list_docker_versions, list_image_storages, list_imported_disks, list_lxc_storages, list_phys_disks, list_vbios_roms, list_vgpu_files, list_vgpu_gpus, list_vgpu_types, list_vm_disks
+from core.web.handlers import _backup_dirs_merged, _decompress_file, _list_template_backup_files, _node_backup_files, _storage_role, collect_nodes_cached, list_backup_storages, list_byid_disks, list_disk_storages, list_docker_versions, list_image_storages, list_imported_disks, list_lxc_storages, list_phys_disks, list_vbios_roms, list_vm_disks
 from core.web.host_util import _is_cluster_node, _local_outbound_ip, _norm_confirm
 from core.web.maintenance import _download_error_text
 from core.web.probe import _SSH_CTRL, _local_access_pred, _run_func_on_node_args, list_available_kernels, list_grub_backups, list_installed_kernels, list_net_backups, list_network_bridges, list_network_vlans, list_pci_generic, list_pci_gpus, list_pci_nics, list_pci_storage, list_phys_nics, list_usb_devices, list_vfio_orphans
@@ -38,7 +41,10 @@ def _node_mgmt_ip(node):
 
 
 def _join_blocked_reason():
-    """开源版无授权限制，允许创建集群 / 加入节点；始终返回空串（不拦截）。"""
+    """「创建集群 / 加入节点」的准入拦截点；返回非空字符串即拒绝并回显该原因。
+
+    当前没有额外限制，恒放行；入口状态（/api/edition 的 can_join）与服务端判断同源。
+    """
     return ""
 
 
@@ -256,9 +262,9 @@ class OpsMixin:
                               "error": _download_error_text(e, urls)}
 
     def _run_tool(self, tool_id):
-        """参数校验→授权闸口→高危确认词校验→节点校验→提交异步任务"""
+        """参数校验→高危确认词校验→节点校验→提交异步任务"""
         tool = toolbox.get_tool(tool_id)
-        # 占位卡片（disabled:True）没有可执行内容，先于授权闸口拒绝，给出比「缺少脚本」更清楚的提示
+        # 占位卡片（disabled:True）没有可执行内容，先拒绝，给出比「缺少脚本」更清楚的提示
         if tool.get("disabled"):
             raise toolbox.ToolError(f"{tool['name']}：该模块尚未开放，敬请期待")
         body = self._read_body()
@@ -297,7 +303,12 @@ class OpsMixin:
             # 否则本机采集异常时，下拉里明明选得出的值也会被误报「不在可选范围内」。
             if not allowed:
                 continue
-            if val not in allowed:
+            # 多选（如虚机多选）：逐一校验逗号/空格分隔的每一个值是否都在合法集合内
+            if p.get("multiple"):
+                for v in re.split(r"[,\s]+", val):
+                    if v and v not in allowed:
+                        raise toolbox.ToolError(f"参数 {p['label']} 取值非法：{v} 不在可选范围内")
+            elif val not in allowed:
                 raise toolbox.ToolError(f"参数 {p['label']} 取值非法：{val} 不在可选范围内")
 
     def _verify_guest_ownership(self, tool, raw_params, node):
@@ -409,23 +420,11 @@ class OpsMixin:
                 return {_get(d, "addr") for d in list_vfio_orphans(node)}
             if options_from == "usb":
                 return {_get(d, "id") for d in list_usb_devices(node)}
-            if options_from == "community_scripts":
-                return {_get(s, "value") for s in list_community_scripts()}
             if options_from == "docker_versions":
                 # 「latest」为前端合成选项（装仓库最新），与大版本线一并放行
                 return {"latest"} | {str(d.get("major")) for d in list_docker_versions()}
             if options_from == "vbios_roms":
                 return {_get(r, "name") for r in list_vbios_roms()}
-            if options_from == "vgpu_drivers":
-                return {_get(r, "name") for r in list_vgpu_files(".run")}
-            if options_from == "vgpu_patches":
-                return {_get(r, "name") for r in list_vgpu_files(".patch")}
-            if options_from == "vgpu_unlock_libs":
-                return {_get(r, "name") for r in list_vgpu_files(".so")}
-            if options_from == "vgpu_gpus":
-                return {_get(g, "addr") for g in list_vgpu_gpus(node)}
-            if options_from == "vgpu_types":
-                return {_get(t, "id") for t in list_vgpu_types(node)}
             if options_from == "bridges":
                 return {_get(b, "name") for b in list_network_bridges(node)}
             if options_from == "phys_nics":
@@ -474,6 +473,37 @@ class OpsMixin:
                           [f"[已排程] {node} 将于约 10 秒后重启"])
         return self._json({"scheduled": node})
 
+    def _shutdown_node(self, node):
+        """关机节点：需 body 携带确认词「关机节点」，sleep 10 后 shutdown -h now。
+
+        排程方式与 _reboot_node 相同（本机 Popen / 远端免密 SSH，均不阻塞 HTTP 响应）。
+        项目没有远程开机（WoL）能力，控制机自身关机后工具箱与 WebUI 都不可用，
+        前端对控制机额外警示，恢复必须到机器现场开机。
+        """
+        body = self._read_body()
+        if _norm_confirm(body.get("confirm")) != _norm_confirm("关机节点"):
+            raise toolbox.ToolError("高危操作需输入确认词：关机节点")
+        if not node.replace("-", "").replace("_", "").isalnum():
+            raise toolbox.ToolError(f"非法节点名: {node}")
+        known = backend.known_node_names()
+        if node not in known:
+            raise toolbox.ToolError(f"节点不存在: {node}")
+        cmd = 'sleep 10 && shutdown -h now "pvewebtools: 节点关机"'
+        if node == socket.gethostname().split(".")[0]:
+            subprocess.Popen(["sh", "-c", cmd], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+        else:
+            r = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", *_SSH_CTRL,
+                 *backend.ssh_host_opts(node),
+                 f"root@{backend.ssh_host(node)}", f"setsid sh -c '{cmd}' >/dev/null 2>&1 &"],
+                capture_output=True, text=True, timeout=15)
+            if r.returncode != 0:
+                raise toolbox.ToolError(r.stderr.strip() or "关机指令下发失败")
+        jobs.record_event("node_shutdown", f"节点关机：{node}", node, True,
+                          ["[已排程] 将于约 10 秒后关机", "无远程开机能力，恢复需到机器现场开机"])
+        return self._json({"scheduled": node})
+
     @staticmethod
     def _require_cluster_node(node, action):
         """校验节点名合法且在当前集群内，否则抛 ToolError（避免对集群外的机器误动作）"""
@@ -511,7 +541,7 @@ class OpsMixin:
         return (
             "set +e\n"
             f"if {_REMOTE_LOCAL_IPS} | grep -qx {shlex.quote(server)}; then\n"
-            f"  echo 'SKIP-SELF: {server} 是本机地址，本机即共享存储导出端，跳过挂载（请用「修复 NFS 服务端」）'\n"
+            f"  echo 'SKIP-SELF: {server} 是本机地址，本机即共享存储导出端，跳过挂载（请用「修复共享存储」）'\n"
             "  exit 0\n"
             "fi\n"
             f"mkdir -p {shlex.quote(path)}\n"
@@ -552,7 +582,7 @@ class OpsMixin:
             "set +e\n"
             'export PATH="$PATH:/usr/sbin:/sbin"\n'
             f"if ! {_REMOTE_LOCAL_IPS} | grep -qx {q(server)}; then\n"
-            f"  echo 'NOT-SERVER: 本机地址不含 {server}，该节点不是共享存储导出端，已中止（请用「修复NFS客户端」）'\n"
+            f"  echo 'NOT-SERVER: 本机地址不含 {server}，该节点不是共享存储导出端，已中止（请用「修复共享存储」）'\n"
             "  exit 2\n"
             "fi\n"
             f"mkdir -p {q(export_dir)}\n"
@@ -611,10 +641,10 @@ class OpsMixin:
             return False, "共享存储接入超时（挂载 NFS）"
         out = (r.stdout or "").strip()
         if r.returncode == 0 and "SKIP-SELF" in out:
-            return False, f"{node} 本身即共享存储导出端，未执行挂载；请改用「修复 NFS 服务端」"
+            return False, f"{node} 本身即共享存储导出端，未执行挂载；请改用「修复共享存储」"
         if r.returncode != 0:
             return False, (r.stderr or out or "未知错误").strip()[:300]
-        jobs.record_event("node_storage_fix", f"修复NFS客户端：{node}", node, True,
+        jobs.record_event("node_storage_fix", f"修复共享存储（客户端）：{node}", node, True,
                           [out or "共享存储接入完成"])
         return True, out or "共享存储接入完成"
 
@@ -636,7 +666,7 @@ class OpsMixin:
         if wtype != "nfs" or not server:
             return False, "未启用 NFS 共享存储（当前为本地 dir 模式），无需修复服务端"
         if _storage_role(node, _node_mgmt_ip(node), cfg) != "server":
-            return False, f"{node} 不是共享存储的导出端（导出端为 {server}）；客户端请用「修复NFS客户端」"
+            return False, f"{node} 不是共享存储的导出端（导出端为 {server}）；客户端请用「修复共享存储」"
         export_dir = cfg.get("WORKSPACE_PATH") or storage_provision.DEFAULT_DIR_PATH
         cidr = cfg.get("LAN_CIDR") or "192.168.0.0/16"
         remote = self._nfs_server_init_remote_script(export_dir, cidr, server)
@@ -647,7 +677,7 @@ class OpsMixin:
         out = (r.stdout or "").strip()
         if r.returncode != 0:
             return False, (out or r.stderr or "未知错误").strip()[:300]
-        jobs.record_event("node_nfs_server_fix", f"修复 NFS 服务端：{node}", node, True,
+        jobs.record_event("node_nfs_server_fix", f"修复共享存储（服务端）：{node}", node, True,
                           [out or "NFS 服务端导出已就绪"])
         ok_line = next((ln for ln in out.splitlines() if ln.startswith("OK:")), "")
         return True, (ok_line[4:].strip() if ok_line else out or "NFS 服务端导出已就绪")
@@ -806,6 +836,7 @@ class OpsMixin:
         if _blocked:
             return self._error(_blocked, 403)
         body = self._read_body()
+
         # 服务端强校验确认词：集群名不可改，误点一次就要重建集群才能改名
         if _norm_confirm(body.get("confirm")) != _norm_confirm("创建集群"):
             raise toolbox.ToolError("高危操作需输入确认词：创建集群")
@@ -844,7 +875,6 @@ class OpsMixin:
             return self._error(_blocked, 403)
         import ipaddress, os, re
         body = self._read_body()
-        # 防误触由「授权码」闸口承担：无有效授权码即拒绝加入，不再另设确认词
         new_host = str(body.get("new_host", "")).strip()
         new_pw = str(body.get("new_password", ""))
         target_ip = str(body.get("target_ip", "")).strip()

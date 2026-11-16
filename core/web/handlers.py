@@ -1,4 +1,9 @@
-"""HTTP 处理入口（M2/T2.6 深化：从 ApiHandler 拆出的 HandlerMixin）。 方法体一行未改——靠 self 访问其余基础设施（HTTP 基础 / 闸口 / SSE），因此能整块搬走； 其依赖的模块级函数与常量也一并带过来，否则它们要反向 import server，形成循环导入。 路由表仍在 routers/ 里用方法名字符串登记，dispatch 用 getattr 在实例上查找，跨 mixin 透明。"""
+"""HTTP 处理入口（HandlerMixin）：各域接口的实现方法，以及它们依赖的模块级函数与常量。
+
+以 mixin 形式与 ``RoutingMixin`` / ``OpsMixin`` 等一起组成 ``ApiHandler``，靠 ``self`` 访问
+HTTP 基础设施（``HttpUtilMixin``）与 SSE（``SseMixin``）；路由表在 ``routers/`` 里用方法名
+字符串登记，``dispatch`` 用 ``getattr`` 在实例上查找，跨 mixin 透明。
+"""
 
 import gzip
 import json
@@ -16,8 +21,9 @@ import urllib.parse
 
 from concurrent.futures import ThreadPoolExecutor
 from core import paths
-from core.pve import pve_api, pve_api as backend, storage_provision, upgrade
+from core.pve import pve_api, pve_api as backend, storage_provision
 from core.tools import toolbox
+from core.version import version_info
 from core.web import jobs
 from core.web.host_util import _is_cluster_node, _local_outbound_ip
 from core.web.probe import _SSH_CTRL, _local_access_pred, _run_func_on_node, _run_func_on_node_args, list_available_kernels, list_grub_backups, list_installed_kernels, list_net_backups, list_network_bridges, list_network_vlans, list_pci_generic, list_pci_gpus, list_pci_nics, list_pci_storage, list_phys_nics, list_usb_devices, list_vfio_orphans
@@ -86,49 +92,6 @@ LXC_TURNKEY_MIN_DEBIAN = 11
 
 LXC_TURNKEY_VER_RE = re.compile(r"^debian-(\d+)-turnkey-")
 
-COMMUNITY_SCRIPTS_DIR = "/etc/pvewebtools/community-scripts"   # pvewebtools 家目录下的默认位置
-
-COMMUNITY_SCRIPTS_FALLBACK_DIRS = ("/opt/community-scripts",)
-
-COMMUNITY_SCRIPT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-
-COMMUNITY_SCRIPT_CATEGORIES = {
-    "scriptcat00001": ("主机管理", "Host Management", 1),
-    "scriptcat00002": ("操作系统与预装应用", "Operating Systems & Appliances", 2),
-    "scriptcat00003": ("容器与 Docker", "Containers & Docker", 3),
-    "scriptcat00004": ("网络与防火墙", "Network & Firewall", 4),
-    "scriptcat000027": ("远程接入与 VPN", "Remote Access & VPN", 5),
-    "scriptcat00005": ("去广告与 DNS", "Adblock & DNS", 6),
-    "scriptcat00006": ("认证与安全", "Authentication & Security", 7),
-    "scriptcat00007": ("备份与恢复", "Backup & Recovery", 8),
-    "scriptcat00008": ("数据库", "Databases", 9),
-    "scriptcat00009": ("监控与分析", "Monitoring & Analytics", 10),
-    "scriptcat00010": ("面板与导航页", "Dashboards & Frontends", 11),
-    "scriptcat00011": ("文件与下载", "Files & Downloads", 12),
-    "scriptcat00012": ("文档与笔记", "Documents & Notes", 13),
-    "scriptcat000026": ("效率与协作", "Productivity & Workflows", 14),
-    "scriptcat00022": ("通讯与社区", "Communication & Community", 15),
-    "scriptcat00018": ("消息队列与物联网消息", "Messaging & Queues", 16),
-    "scriptcat00013": ("影音与流媒体", "Media & Streaming", 17),
-    "scriptcat00014": ("*Arr 套件", "*Arr Suite", 18),
-    "scriptcat00015": ("监控录像与摄像头", "NVR & Cameras", 19),
-    "scriptcat00016": ("物联网与智能家居", "IoT & Smart Home", 20),
-    "scriptcat00017": ("ZigBee / Z-Wave / Matter", "ZigBee, Z-Wave & Matter", 21),
-    "scriptcat00019": ("自动化与定时任务", "Automation & Scheduling", 22),
-    "scriptcat00020": ("AI 与开发工具", "AI / Coding & Dev-Tools", 23),
-    "scriptcat00021": ("Web 服务器与反向代理", "Webservers & Proxies", 24),
-    "scriptcat00023": ("财务与记账", "Finance & Budgeting", 25),
-    "scriptcat00024": ("游戏与娱乐", "Gaming & Leisure", 26),
-    "scriptcat00025": ("企业与 ERP", "Business & ERP", 27),
-    "scriptcat00000": ("其他", "Miscellaneous", 99),
-}
-
-COMMUNITY_SCRIPT_CATEGORY_FILE = "scripts-categories.json"
-
-COMMUNITY_SCRIPT_ACCESS_FILE = "scripts-access.json"
-
-COMMUNITY_SCRIPT_UNGROUPED = (1000, "官网未收录")
-
 _DOCKER_VER_TTL = 6 * 3600
 
 _DOCKER_VER_CACHE = {"t": 0.0, "data": None}
@@ -151,20 +114,6 @@ MAX_VBIOS_SIZE = 16 * 1024 ** 2   # 单 ROM 上限 16MB（正常 vBIOS 仅几百
 
 _vbios_lock = threading.Lock()
 
-VGPU_MATERIAL_EXTS = (".run", ".patch", ".so")
-
-VGPU_TMP_DIR = Path("/var/tmp/pvewebtools-vgpu")
-
-MAX_VGPU_SIZE = 2 * 1024 ** 3   # 单文件上限 2GB（NVIDIA vGPU 宿主机 .run 驱动约 500MB）
-
-_vgpu_lock = threading.Lock()
-
-_VGPU_PROBE_CACHE = {}
-
-_VGPU_PROBE_TTL = 5
-
-_VGPU_KIND_ORDER = {"Q": 0, "B": 1, "A": 2, "C": 3}
-
 _MERGE_STATE = {}          # key -> {"state": "merging"|"done"|"error", "msg": str?}
 
 _MERGE_LOCK = threading.RLock()
@@ -173,7 +122,7 @@ _UPLOAD_ACTIVE = {}       # key -> 正在接收的分片数；收齐且没有写
 
 _UPLOAD_SIZE_LIMITS = {
     "backup": MAX_BACKUP_SIZE, "vztmpl": MAX_VZTMPL_SIZE, "vbios": MAX_VBIOS_SIZE,
-    "vgpu": MAX_VGPU_SIZE, "disk": MAX_DISK_SIZE, "cloud": MAX_DISK_SIZE,
+    "disk": MAX_DISK_SIZE, "cloud": MAX_DISK_SIZE,
 }
 
 _UPLOAD_INDEX_PATH = Path("/etc/pvewebtools/upload-index.json")
@@ -290,15 +239,16 @@ _WIN_RECOVERY_TYPE = "de94bba4-06d1-4d40-a16a-bfd50179d6ac"
 
 
 def edition_caps():
-    """版本能力描述（供 /api/edition 与「加入节点」入口判断共用）。
+    """版本能力描述（供 /api/edition 与「加入节点」入口判断共用，避免前后端口径漂移）。
 
-    开源版无授权：enforced 恒为 False、max_nodes 为 0（不限）、can_join 恒为 True。
-    runtime 反映运行期工具档位（源码模式按 toolbox_pro 是否存在判定，开源版为 lite）。
+    - edition：工具集档位（lite，用于版本胶囊展示）
+    - runtime：同 edition（保留字段以兼容前端）
+    - max_nodes / enforced：0 / False —— 不限制机器数
+    - can_join：True —— 允许创建 / 加入集群
     """
-    runtime = str(getattr(toolbox, "EDITION", "") or "")
     return {
-        "edition": getattr(toolbox, "_BUILD_EDITION", ""),
-        "runtime": runtime,
+        "edition": str(getattr(toolbox, "EDITION", "") or ""),
+        "runtime": str(getattr(toolbox, "EDITION", "") or ""),
         "max_nodes": 0,
         "enforced": False,
         "can_join": True,
@@ -719,109 +669,6 @@ def list_lxc_downloaded():
     return out
 
 
-def _community_script_category_label(zh, en):
-    """分组显示名：中英对照（中文为主，英文照搬官网分类名）。
-
-    英文名与中文名「实质相同」时只显示一次，避免出现
-    「ZigBee / Z-Wave / Matter（ZigBee, Z-Wave & Matter）」这种同义重复——判等按去标点后比较，
-    这样表里仍可保留官网原文（便于逐字对照官网分类页）。"""
-    if not en or en == zh:
-        return zh
-
-    def _norm(s):
-        return re.sub(r"[^0-9a-z]+", "", s.lower())
-
-    return zh if _norm(zh) == _norm(en) else "%s（%s）" % (zh, en)
-
-
-def _community_script_option_label(slug, dev):
-    """下拉里单个应用的名字：脚本名（+ 测试版标记）。
-
-    曾经把「另外所属的分类」也缀在名字后面（官网卡片上是把分类全列成 tag），但下拉里
-    分组已经表达了当前分类，再缀一遍又长又挤（中英对照一缀就是半行），实测视觉噪音太大，去掉。
-    dev = 官网的测试版脚本（官网卡片上的 dev 徽章 / Testing 筛选），是短徽章，不影响观感。"""
-    return slug + (" [dev]" if dev else "")
-
-
-def _community_script_groups(base):
-    """读 <仓库根>/scripts-categories.json → ({脚本名: ([(分类排序, 分组名), ...], 是否 dev)}, {已删除/已禁用脚本名})。
-
-    快照缺失或损坏时返回 ({}, set())：下拉退化成平铺（仍可安装），不影响功能。
-    一个应用可属多个分类（官网数据是多对多，28 类相加 757 > 710 条脚本就是它），
-    这里**如实返回它所属的每个分类**，由调用方决定是否展开成多个下拉项（与官网口径一致）。
-    内置分类表没有的 id（官网新增）用快照自带的英文名，排在内置表之后。"""
-    try:
-        data = json.loads((Path(base) / COMMUNITY_SCRIPT_CATEGORY_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}, set()
-    if not isinstance(data, dict):
-        return {}, set()
-    cats = data.get("categories") if isinstance(data.get("categories"), dict) else {}
-    scripts = data.get("scripts") if isinstance(data.get("scripts"), dict) else {}
-    inactive = {str(s) for s in (data.get("inactive") or []) if s}
-    out = {}
-    for slug, val in scripts.items():
-        if isinstance(val, list):          # 旧版快照：值就是分类 id 数组
-            ids, dev = val, False
-        elif isinstance(val, dict):
-            ids, dev = val.get("cat") or [], bool(val.get("dev"))
-        else:
-            continue
-        if not isinstance(ids, list):
-            continue
-        groups = []
-        for cid in ids:
-            cid = str(cid)
-            if cid in COMMUNITY_SCRIPT_CATEGORIES:
-                zh, en, order = COMMUNITY_SCRIPT_CATEGORIES[cid]
-                label = _community_script_category_label(zh, en)
-            else:
-                raw = cats.get(cid) if isinstance(cats.get(cid), dict) else {}
-                label = str(raw.get("name") or cid)
-                try:
-                    order = int(raw.get("order"))
-                except (TypeError, ValueError):
-                    order = 1001
-            if all(label != lbl for _, lbl in groups):     # 同名分类只留一条（防快照里重复 id）
-                groups.append((order, label))
-        if groups:
-            groups.sort()
-            out[str(slug)] = (groups, dev)
-    return out, inactive
-
-
-def _community_script_access(base):
-    """读 <仓库根>/scripts-access.json → {脚本名: {"port": int, "user": str, "passwd": str}}。
-
-    官网 PocketBase 的 script_scripts 每条都带 port / default_user / default_passwd
-    （官网详情页的「Install Profiles → Port / Default credentials」就是它），由 fork 的
-    gen-scripts-categories.py 随分类快照一并导出。这里只做形状校验：
-    整体缺失/损坏/结构不对 → 返回 {}（前端据此完全不显示访问信息，避免把「不知道」误报成
-    「该应用没有凭据」）；单条异常则跳过该条。port ≤ 0 归零——官网用 0 表示（该脚本没有）Web 端口。
-    已知但为空（user=""）是有意义的取值，照原样返回，由前端渲染成「无预设凭据」。"""
-    try:
-        data = json.loads((Path(base) / COMMUNITY_SCRIPT_ACCESS_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    rows = data.get("scripts") if isinstance(data, dict) else None
-    if not isinstance(rows, dict):
-        return {}
-    out = {}
-    for slug, val in rows.items():
-        if not isinstance(val, dict):
-            continue
-        try:
-            port = int(val.get("port") or 0)
-        except (TypeError, ValueError):
-            port = 0
-        out[str(slug)] = {
-            "port": port if port > 0 else 0,
-            "user": str(val.get("user") or ""),
-            "passwd": str(val.get("passwd") or ""),
-        }
-    return out
-
-
 def _docker_ver_fetch():
     html = ""
     for url in _DOCKER_VER_URLS:
@@ -868,56 +715,6 @@ def list_docker_versions():
     数据源为 docker-ce 仓库 static/stable 目录列表（与发行版无关），结果缓存 6 小时；
     抓取失败时回退上次缓存（即使过期），仍无则返回 []（前端给出可读占位）。"""
     return _list_docker_versions_base()
-
-
-def list_community_scripts(base_dir=""):
-    """列出本地 community-scripts 仓库里可一键安装的应用脚本（ProxmoxVE/ct/*.sh）。
-
-    返回 [{value, label, group}]，value = 脚本名（不含 .sh），group = 官网分类名（中英对照，
-    见 COMMUNITY_SCRIPT_CATEGORIES；快照缺失或官网查不到时归「官网未收录」）。默认读 COMMUNITY_SCRIPTS_DIR
-    （pvewebtools 家目录），找不到再回退旧位置；显式传入 base_dir 时只读它。
-    口径与官网一致：① 已删除/已禁用的脚本不列出（引擎安装前也会拦，这里提前隐藏避免误导）；
-    ② 一个脚本出现在它所属的**每个**分类下（官网 28 类相加 757 > 710 条脚本就是这个多对多），
-    所以同一 value 可能出现多次——选中哪个都一样，只是让用户在每个分类下都能找到它。
-    label 另带 dev 标记（测试版）。列表已按「分类顺序 + 分类名 + 脚本名」排好
-    （分组连续，前端据此生成 <optgroup>）；目录都不存在时返回空列表，前端提示先同步仓库。
-    另有 scripts-access.json 时，给每项附 access={port,user,passwd}（选中应用后前端展示
-    访问端口与默认账号密码）；快照缺失则不带该键——「不知道」与「已知但无凭据」不能混为一谈。"""
-    if base_dir:
-        dirs = [Path(base_dir)]
-    else:
-        dirs = [Path(COMMUNITY_SCRIPTS_DIR)] + [Path(d) for d in COMMUNITY_SCRIPTS_FALLBACK_DIRS]
-    for base in dirs:
-        ct = base / "ProxmoxVE" / "ct"
-        try:
-            if not ct.is_dir():
-                continue
-            groups, inactive = _community_script_groups(base)
-            access = _community_script_access(base)
-            rows = []
-            for f in sorted(ct.glob("*.sh")):
-                if not COMMUNITY_SCRIPT_NAME_RE.match(f.stem) or f.stem in inactive:
-                    continue
-                cats, dev = groups.get(f.stem, ([COMMUNITY_SCRIPT_UNGROUPED], False))
-                for order, name in cats:
-                    rows.append((order, name, f.stem, dev))
-        except OSError:
-            continue
-        if rows:
-            # 分类顺序 → 分类名 → 脚本名：同一分类的项必须连续（前端按首次出现顺序生成 optgroup）；
-            # 带上分类名是因为「内置表没有的官网新分类」会共用同一个兜底 order，不带名会把两组穿插在一起
-            rows.sort(key=lambda r: (r[0], r[1], r[2]))
-            out = []
-            for _, name, stem, dev in rows:
-                item = {"value": stem, "label": _community_script_option_label(stem, dev),
-                        "group": name}
-                info = access.get(stem)
-                # 快照里没有该脚本就不带 access：前端据此完全不显示，而不是误报「无凭据」
-                if info is not None:
-                    item["access"] = info
-                out.append(item)
-            return out
-    return []
 
 
 def lxc_template_dest(storage):
@@ -1170,172 +967,6 @@ def _merge_disk_chunks(name, count, dest_dir, kind="disk"):
         return True
 
 
-def _vgpu_asset_dir():
-    """vGPU 宿主机物料目录（pvewebtools 共享存储根下的 vgpu-drivers/）。
-    共享存储不可用（单节点/未配 NFS）时回退本机默认工作区路径，保证单节点也能上传与安装。"""
-    root = backend.storage_path("pvewebtools")
-    if not root:
-        root = Path(storage_provision.DEFAULT_DIR_PATH)
-    return root / "vgpu-drivers"
-
-
-def _allowed_vgpu_ext(name):
-    """vGPU 物料上传扩展名校验：.run（驱动）/ .patch（解锁补丁）/ .so（解锁库）"""
-    return name.lower().endswith(VGPU_MATERIAL_EXTS)
-
-
-def _merge_vgpu_chunks(name, count):
-    """vGPU 物料分片收齐后合并到共享存储 vgpu-drivers/，供「N卡 vGPU 宿主机准备」使用。
-    跨文件系统（/var/tmp -> NFS 共享）用 copyfile 而非 rename（rename 会 EXDEV 失败）。
-    全局锁防并发重复合并。返回是否完成。"""
-    tmp = VGPU_TMP_DIR / name
-    with _vgpu_lock:
-        if not tmp.is_dir():
-            return False
-        parts = _completed_upload_parts(tmp, count)
-        if not parts:
-            return False
-        # 文件名严格白名单校验（防路径穿越）
-        if not re.fullmatch(r"[\w][\w.\-]{0,99}", name) or not _allowed_vgpu_ext(name):
-            shutil.rmtree(tmp, ignore_errors=True)
-            raise backend.PveError("非法文件名（仅支持 .run/.patch/.so）")
-        dest_dir = _vgpu_asset_dir()
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        # staging 直接落在目标目录（与 _merge_disk_chunks 同一套做法）：拼完 rename 即可，
-        # 省掉「先拼到 /var/tmp 再 copyfile 到共享存储」的第二遍读写（驱动 500MB+ 时差距明显）。
-        # 目标可能是 NFS：staging 与最终文件同目录 → 同文件系统，replace 不会 EXDEV。
-        target = dest_dir / name
-        staging = target.with_name(target.name + ".merged")
-        staging.unlink(missing_ok=True)
-        try:
-            with open(staging, "wb") as out:
-                for p in parts:
-                    with open(p, "rb") as pf:
-                        shutil.copyfileobj(pf, out, 1024 * 1024)
-            _check_upload_merged_size(tmp, staging)
-            if staging.stat().st_size > MAX_VGPU_SIZE:
-                raise backend.PveError("文件超过 2GB 上限")
-            staging.replace(target)
-            try:
-                # 驱动与解锁库需可执行；补丁只要可读
-                mode = 0o755 if name.lower().endswith((".run", ".so")) else 0o644
-                os.chmod(dest_dir / name, mode)
-            except OSError:
-                pass
-        finally:
-            staging.unlink(missing_ok=True)
-            shutil.rmtree(tmp, ignore_errors=True)
-        return True
-
-
-def list_vgpu_files(ext=None):
-    """共享存储 vgpu-drivers/ 下的物料清单；ext 传后缀（如 ".run"）时只列该类型。
-    附带从文件名解析出的版本号（驱动与补丁的文件名都含版本，供前后端做配对校验）。"""
-    d = _vgpu_asset_dir()
-    if not d.is_dir():
-        return []
-    try:
-        entries = sorted(d.iterdir())
-    except OSError:
-        return []
-    out = []
-    for p in entries:
-        try:
-            if not p.is_file() or not _allowed_vgpu_ext(p.name):
-                continue
-            if ext and not p.name.lower().endswith(ext):
-                continue
-            size = p.stat().st_size
-        except OSError:
-            continue
-        m = re.search(r"(\d+\.\d+(?:\.\d+)?)", p.name)
-        out.append({"name": p.name, "size": size, "version": m.group(1) if m else ""})
-    return out
-
-
-def list_vgpu_materials():
-    """已上传的 vGPU 宿主机物料全量清单（驱动/解锁补丁/解锁库）。
-    前端按名称后缀自行归类（.run / .patch / .so），服务端参数复核时按后缀过滤。"""
-    return list_vgpu_files()
-
-
-def _vgpu_probe_script():
-    """节点侧探测脚本（固定内容，不拼接任何用户输入）：输出 GPU| / TYPE| / MAX| 三类行。"""
-    return (
-        'export LC_ALL=C\n'
-        'for d in $(lspci -Dnn 2>/dev/null | grep -i "10de:" | awk \'{print $1}\'); do\n'
-        '  # 只收显示/3D 控制器（class 03xxxx）：排除同厂商的显卡音频 function（0403）等\n'
-        '  case "$(cat "/sys/bus/pci/devices/$d/class" 2>/dev/null)" in 0x03*) ;; *) continue ;; esac\n'
-        '  drv=""\n'
-        '  if [ -e "/sys/bus/pci/devices/$d/driver" ]; then\n'
-        '    drv=$(basename "$(readlink -f "/sys/bus/pci/devices/$d/driver" 2>/dev/null)" 2>/dev/null)\n'
-        '  fi\n'
-        '  echo "GPU|$d|$drv|$(lspci -Dnn -s "$d" 2>/dev/null | sed "s/^[^ ]* //")"\n'
-        '  for t in "/sys/bus/pci/devices/$d/mdev_supported_types"/*; do\n'
-        '    [ -d "$t" ] || continue\n'
-        '    echo "TYPE|$(basename "$t")|$d|$(cat "$t/name" 2>/dev/null)|$(cat "$t/available_instances" 2>/dev/null)"\n'
-        '  done\n'
-        'done\n'
-        'if command -v mdevctl >/dev/null 2>&1; then\n'
-        '  mdevctl types 2>/dev/null | awk \'\n'
-        '    /^[ \\t]*nvidia-/ { if (ai != "" && id != "") print "MAX|" id "|" ai; id=$1; ai=""; next }\n'
-        '    /Available instances:/ { ai=$NF }\n'
-        '    END { if (ai != "" && id != "") print "MAX|" id "|" ai }\'\n'
-        'fi\n'
-    )
-
-
-def _parse_vgpu_probe(text):
-    """把探测脚本的 GPU|/TYPE|/MAX| 行解析成 {"gpus": [...], "types": [...]}。"""
-    gpus, types, maxes = [], [], {}
-    for line in (text or "").splitlines():
-        f = line.split("|")
-        if len(f) < 3:
-            continue
-        if f[0] == "GPU" and len(f) >= 4:
-            gpus.append({"addr": f[1].strip(), "driver": f[2].strip(), "desc": f[3].strip()})
-        elif f[0] == "TYPE" and len(f) >= 5:
-            av = f[4].strip()
-            types.append({"id": f[1].strip(), "parent": f[2].strip(),
-                          "name": f[3].strip() or f[1].strip(),
-                          "available": int(av) if av.isdigit() else None,
-                          "max": None})
-        elif f[0] == "MAX" and len(f) >= 3:
-            mx = f[2].strip()
-            if mx.isdigit():
-                maxes[f[1].strip()] = int(mx)
-    for t in types:
-        if t["id"] in maxes:
-            t["max"] = maxes[t["id"]]
-    return {"gpus": gpus, "types": types}
-
-
-def _vgpu_probe(node=None):
-    """在指定节点采集 NVIDIA 卡与 mdev 规格；失败返回空结构（前端下拉退化为空选项）。"""
-    local = socket.gethostname().split(".")[0]
-    key = node or local
-    hit = _VGPU_PROBE_CACHE.get(key)
-    if hit and time.time() - hit[0] < _VGPU_PROBE_TTL:
-        return hit[1]
-    data = {"gpus": [], "types": []}
-    try:
-        script = _vgpu_probe_script()
-        if node and node != local:
-            out = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new", *_SSH_CTRL,
-                 *backend.ssh_host_opts(node),
-                 f"root@{backend.ssh_host(node)}", "bash -s"],
-                input=script, capture_output=True, text=True, timeout=30)
-        else:
-            out = subprocess.run(["bash", "-s"], input=script,
-                                 capture_output=True, text=True, timeout=30)
-        data = _parse_vgpu_probe(out.stdout)
-    except Exception:  # noqa: BLE001
-        data = {"gpus": [], "types": []}
-    _VGPU_PROBE_CACHE[key] = (time.time(), data)
-    return data
-
-
 def _pci_bd(addr):
     """PCI 地址归一化成 bus:device（去 domain 前缀与 .function），用于比对 VM 配置里的写法。"""
     s = (addr or "").strip()
@@ -1345,86 +976,6 @@ def _pci_bd(addr):
     return s.split(".")[0].lower()
 
 
-def _vgpu_vm_usage():
-    """扫全集群 VM 配置，收集 hostpci 占用：返回 [{"vmid","name","node","bd","mdev"}]。
-    mdev 为空表示该槽位是物理直通（会抢走显卡，与 vGPU 冲突）。
-    路径遍历 /etc/pve/nodes/*/qemu-server/（不只看本节点），跨节点也能标注。"""
-    out = []
-    try:
-        confs = sorted(Path("/etc/pve/nodes").glob("*/qemu-server/*.conf"))
-    except OSError:
-        confs = []
-    for conf in confs:
-        try:
-            text = conf.read_text(errors="ignore")
-        except OSError:
-            continue
-        m = re.search(r"^name:\s*(.+)$", text, re.M)
-        name = m.group(1).strip() if m else ""
-        for mm in re.finditer(r"^hostpci\d+:\s*(.+)$", text, re.M):
-            val = mm.group(1).strip()
-            first = val.split(",")[0].strip()
-            # mapping=<id> 写法没有 BDF，仅 mdev 槽位仍可统计
-            bd = _pci_bd(first) if "=" not in first else ""
-            md = ""
-            mdev = re.search(r"(?:^|,)mdev=([^,]+)", val)
-            if mdev:
-                md = mdev.group(1).strip()
-            if not bd and not md:
-                continue
-            out.append({"vmid": conf.stem, "name": name,
-                        "node": conf.parent.parent.name, "bd": bd, "mdev": md})
-    return out
-
-
-def list_vgpu_gpus(node=None):
-    """可分配 vGPU 的 NVIDIA 卡：标注宿主驱动、可用规格数、已被哪些 VM 占用（mdev/物理直通）。"""
-    data = _vgpu_probe(node)
-    usage = _vgpu_vm_usage()
-    out = []
-    for g in data["gpus"]:
-        bd = _pci_bd(g["addr"])
-        ts = [t for t in data["types"] if _pci_bd(t["parent"]) == bd]
-        used = []
-        for u in usage:
-            if u["bd"] and u["bd"] == bd:
-                used.append({"vmid": u["vmid"], "name": u["name"], "node": u["node"],
-                             "mode": "mdev" if u["mdev"] else "passthrough", "mdev": u["mdev"]})
-        out.append({"addr": g["addr"], "desc": g["desc"], "driver": g["driver"],
-                    "type_count": len(ts), "used_by": used})
-    return out
-
-
-def _vgpu_profile_sort_key(t):
-    """规格排序键：把规格名解析成 (用途分组, 显存 GB, 屏数变体, 原名)。
-
-    名称形如 GRID P4-4Q / GRID P4-2B4（卡型-显存GB+用途字母+[屏数]）。
-    解析不出的命名（新卡命名、"MIG 1g.24gb+gfx"、回退成类型 id 的 nvidia-63 等）
-    统一归到最后一组，既不会报错也不会打乱可解析项的相对顺序。
-    """
-    label = (t.get("label") or t.get("id") or "").strip()
-    m = re.match(r"^.*-(\d+)([A-Za-z])(\d*)$", label)
-    if not m:
-        return (9, 0, 0, label.lower())
-    fb, kind, var = int(m.group(1)), m.group(2).upper(), m.group(3)
-    return (_VGPU_KIND_ORDER.get(kind, 8), fb, int(var or 0), label.lower())
-
-
-def list_vgpu_types(node=None):
-    """各卡当前可分配的 mdev 规格（value 即写入 hostpci 的 mdev=<type id>）。
-    max=驱动报告的最大实例数（mdevctl types 的 Available instances），None 表示未知。
-    输出按「用途分组（Q 工作站 → B 桌面 → A 应用 → C 计算）+ 组内显存升序」排序，
-    避免直接沿用 sysfs 目录名字典序（nvidia-157 会排在 nvidia-63 前面，看着毫无规律）。"""
-    data = _vgpu_probe(node)
-    name_by_bd = {_pci_bd(g["addr"]): g["desc"] for g in data["gpus"]}
-    out = []
-    for t in data["types"]:
-        out.append({"id": t["id"], "label": t["name"], "parent": t["parent"],
-                    "parent_desc": name_by_bd.get(_pci_bd(t["parent"]), ""),
-                    "max": t["max"], "available": t["available"]})
-    out.sort(key=_vgpu_profile_sort_key)
-    return out
-
 
 def _upload_name_ok(kind, name):
     """上传、续传查询和秒传登记共用文件名规则，不放宽固件/驱动物料的限制。"""
@@ -1432,7 +983,7 @@ def _upload_name_ok(kind, name):
         return False
     if kind in ("backup", "disk", "cloud"):
         return re.fullmatch(r"[\w][\w.\- ]*", name) is not None
-    if kind in ("vbios", "vgpu"):
+    if kind == "vbios":
         return re.fullmatch(r"[\w][\w.\-]{0,99}", name) is not None
     if kind == "vztmpl":
         return _allowed_vztmpl_ext(name)
@@ -1443,7 +994,7 @@ def _upload_roots():
     """disk/cloud 的类型由目录持久化，重启后不再猜测同一分片属于哪个目标。"""
     return (("backup", BACKUP_TMP_DIR), ("vztmpl", VZTMPL_TMP_DIR),
             ("disk", DISK_TMP_DIR / "disk"), ("cloud", DISK_TMP_DIR / "cloud"),
-            ("vbios", VBIOS_TMP_DIR), ("vgpu", VGPU_TMP_DIR))
+            ("vbios", VBIOS_TMP_DIR))
 
 
 def _upload_tmp_dir(kind, name, storage):
@@ -1456,8 +1007,6 @@ def _upload_tmp_dir(kind, name, storage):
         return DISK_TMP_DIR / kind / name
     if kind == "vbios":
         return VBIOS_TMP_DIR / name
-    if kind == "vgpu":
-        return VGPU_TMP_DIR / name
     return None
 
 
@@ -1629,8 +1178,6 @@ def _do_merge(kind, name, storage, count):
         return _merge_vztmpl_chunks(storage, name, count)
     if kind == "vbios":
         return _merge_vbios_chunks(name, count)
-    if kind == "vgpu":
-        return _merge_vgpu_chunks(name, count)
     dest = _disk_image_dir() if kind == "disk" else _cloud_image_dir()
     ok = _merge_disk_chunks(name, count, dest, kind=kind)
     comp_ext = next((e for e in _CLOUD_COMP_EXTS if name.lower().endswith(e)), None)
@@ -1702,8 +1249,6 @@ def _upload_target_path(kind, name, storage):
         dest = Path(_disk_image_dir() if kind == "disk" else _cloud_image_dir())
         comp = next((e for e in _CLOUD_COMP_EXTS if name.lower().endswith(e)), None)
         return dest / (name[: -len(comp)] if comp else name)
-    if kind == "vgpu":
-        return _vgpu_asset_dir() / name
     if kind == "vbios":
         return VBIOS_TARGET_DIR / name
     return None
@@ -2427,6 +1972,7 @@ def _enrich_node_slow(n):
         n["temps"] = {}  # 温度依赖缺失时不展示，不影响其他块
 
 
+
 def list_byid_disks(node=None):
     """列出可用于直通的整块磁盘 by-id 名（排除分区/设备映射），供前端下拉选择；指定 node 时从目标节点采集。
     标注 host_used：PVE 系统盘与 PVE 真正在用的存储盘，前端置灰 + 脚本拦截。
@@ -3134,9 +2680,8 @@ class HandlerMixin:
         ?fresh=1 触发后台重采（手动刷新）：立即回当前缓存、慢硬件采集转后台，新数据由前端
         下一轮轮询取走，请求本身不再等待 SSH 慢命令。pvesh 的节点表在集群降级时可能缺节点
         甚至为空（pmxcfs 成员视图不同步）：用 corosync 成员表补齐，避免节点管理页整页空白、
-        离线节点连「临时取得仲裁」都点不到。只识别授权指纹清单内的节点（未授权节点隐藏，
-        扫描不可靠时 fail-open），并标注本机标记与共享存储角色——前端据此把「执行节点」下拉的
-        本机项显示成真实节点名，并决定显示「修复 NFS 客户端」还是「修复 NFS 服务端」。
+        离线节点连「临时取得仲裁」都点不到。并标注本机标记与共享存储角色——前端据此把
+        「执行节点」下拉的本机项显示成真实节点名；共享存储角色用于一键修复时的排序与逐台动作分流。
         """
         query = parse_qs(urlparse(self.path).query)
         nodes = collect_nodes_cached(force=bool(query.get("fresh")))
@@ -3573,7 +3118,7 @@ class HandlerMixin:
     def _handle_template_cache_delete(self):
         """DELETE /api/template-cache  body:{node,name} 删单条；body:{node,all:true} 清空该节点缓存。
 
-        注意：do_DELETE 只兜底 UpgradeError/PveError，节点解析的 ToolError 需在此自行转错误响应。
+        注意：do_DELETE 只兜底 PveError，节点解析的 ToolError 需在此自行转错误响应。
         """
         body = self._read_body()
         try:
@@ -3604,37 +3149,6 @@ class HandlerMixin:
         """
         body = self._read_body()
         return self._handle_vbios_delete(str(body.get("name", "")))
-
-    def _handle_vgpu_materials(self):
-        """GET /api/vgpu/materials  已上传的 vGPU 宿主机物料清单（驱动/解锁补丁/解锁库）。
-
-        供「N卡 vGPU 宿主机准备」下拉。
-        """
-        return self._json(list_vgpu_materials())
-
-    def _handle_vgpu_gpus(self):
-        """GET /api/vgpu/gpus  vGPU 分配下拉数据源；?node= 指定集群节点（mdev 规格是节点级资源）。"""
-        query = parse_qs(urlparse(self.path).query)
-        node = (query.get("node") or [""])[0]
-        if node:
-            known = backend.known_node_names()
-            if node not in known:
-                return self._error("节点不存在", 404)
-        return self._json(list_vgpu_gpus(node or None))
-
-    def _handle_vgpu_types(self):
-        """GET /api/vgpu/types  vGPU 可分配规格下拉；?node= 指定集群节点（mdev 规格是节点级资源）。"""
-        query = parse_qs(urlparse(self.path).query)
-        node = (query.get("node") or [""])[0]
-        if node:
-            known = backend.known_node_names()
-            if node not in known:
-                return self._error("节点不存在", 404)
-        return self._json(list_vgpu_types(node or None))
-
-    def _handle_community_scripts(self):
-        """GET /api/community-scripts/list  本地社区脚本仓库可一键安装的应用脚本（「社区脚本」下拉）。"""
-        return self._json(list_community_scripts())
 
     def _handle_docker_versions(self):
         """GET /api/docker-versions  Docker 引擎稳定版版本下拉。"""
@@ -3762,16 +3276,12 @@ class HandlerMixin:
         return self._json(backend.quorum_status())
 
     def _handle_edition(self):
-        """GET /api/edition  编译期版本标记 + 运行期工具档位 + 版本号 + 版本能力。
+        """GET /api/edition  版本号 + 工具集档位 + 版本能力。
 
-        轻量接口：供首屏胶囊秒显（不触发 toolbox/jobs 重型路径）。edition 是编译标记
-        （源码运行为空，用于版本胶囊）；runtime 是运行期工具档位（toolbox.EDITION）。前端按
-        runtime 显隐带 data-edition 标记的元素（帮助手册的 Pro 段落、传输中心的 vGPU 物料
-        类型）——源码运行没有编译标记但按 pro 工具集注册，用 edition 判断会误判成 lite。
-        max_nodes / can_join / enforced 见 edition_caps()：前端据此显隐「+ 加入节点」入口
-        （lite 单机版没有该入口，后端对应接口也会 403）。
+        轻量接口：供首屏胶囊秒显（不触发 toolbox/jobs 重型路径）。edition / runtime 是
+        工具集档位（toolbox.EDITION）；max_nodes / can_join / enforced 见 edition_caps()。
         """
-        _vi = upgrade.version_info()
+        _vi = version_info()
         data = edition_caps()
         data.update({"version": _vi["version"], "source": _vi["source"]})
         return self._json(data)
@@ -3805,30 +3315,6 @@ class HandlerMixin:
         _receive_upload_chunk(self.rfile, length, "vbios", name, "", index, count,
                               (query.get("size") or [""])[0])
         merging = _maybe_merge_async("vbios", name, "", count)
-        return self._json({"ok": True, "done": False, "merging": merging})
-
-    def _handle_vgpu_upload(self):
-        """接收单个 vGPU 宿主机物料（.run/.patch/.so）分片落盘；收齐后合并到共享存储 vgpu-drivers/"""
-        query = parse_qs(urlparse(self.path).query)
-        name = (query.get("name") or [""])[0]
-        try:
-            index = int((query.get("index") or ["-1"])[0])
-            count = int((query.get("count") or ["0"])[0])
-        except ValueError:
-            return self._error("分片参数错误", 400)
-        length = int(self.headers.get("Content-Length") or 0)
-        if not name or count <= 0 or not 0 <= index < count:
-            return self._error("上传参数错误", 400)
-        err = _upload_size_error("vgpu", (query.get("size") or [""])[0])
-        if err:
-            return self._error(err, 400)
-        if not _upload_name_ok("vgpu", name):
-            return self._error("非法文件名", 400)
-        if not _allowed_vgpu_ext(name):
-            return self._error("不允许的文件类型，仅支持 .run/.patch/.so", 400)
-        _receive_upload_chunk(self.rfile, length, "vgpu", name, "", index, count,
-                              (query.get("size") or [""])[0])
-        merging = _maybe_merge_async("vgpu", name, "", count)
         return self._json({"ok": True, "done": False, "merging": merging})
 
     def _handle_vztmpl_upload(self):
@@ -4329,4 +3815,50 @@ class HandlerMixin:
         """重跑 NFS 服务端导出（装服务 + 写 /etc/exports + exportfs + 起服务）：失败不抛错（前端按告警展示）"""
         ok, msg = self._fix_nfs_server(node)
         return self._json({"node": node, "ok": ok, "msg": msg})
+
+    def _handle_node_storage_fix_all(self):
+        """POST /api/nodes/storage-fix-all  一键修复集群内所有节点的共享存储。
+
+        导出端必须先就绪、客户端才挂得上，故按角色排序（server 优先）后逐台调用
+        _fix_node_storage（内部按角色自动分流）。离线 / 占位条目状态未知、SSH 必然超时，
+        直接跳过并单列，避免一台把整批拖住。逐台结果一次性返回，供前端展示。
+        """
+        nodes = _merge_cluster_nodes(collect_nodes_cached() or [])
+        try:
+            cfg = storage_provision._load_config()
+        except Exception:
+            cfg = None
+        targets, skipped = [], []
+        for n in nodes:
+            name = str(n.get("node") or "")
+            if not name:
+                continue
+            # 占位条目 = pvesh 未返回该节点（集群降级时由 corosync 补出），状态未知
+            if n.get("placeholder") or str(n.get("status") or "").lower() == "offline":
+                skipped.append(name)
+                continue
+            role = _storage_role(name, str(n.get("ip") or n.get("address") or ""), cfg)
+            if role == "dir":
+                continue        # 本地 dir 模式：没有共享存储可修
+            targets.append((0 if role == "server" else 1, name, role))
+        targets.sort(key=lambda t: (t[0], t[1]))
+        results = []
+        for _order, name, role in targets:
+            try:
+                ok, msg = self._fix_node_storage(name)
+            except Exception as e:  # noqa: BLE001  单台失败不影响其余节点
+                ok, msg = False, str(e)[:300]
+            results.append({"node": name, "role": role, "ok": ok, "msg": msg})
+            jobs.record_event("node_storage_fix_all", f"一键修复共享存储 · {name}", name, ok,
+                              [msg or ("修复完成" if ok else "修复失败")])
+        done = sum(1 for r in results if r["ok"])
+        if not results:
+            msg = "没有需要修复的节点（未启用 NFS 共享存储，或节点均离线）"
+        elif done == len(results):
+            msg = f"全部 {done} 台节点修复完成"
+        else:
+            msg = f"{len(results) - done} 台节点修复失败，详见逐台结果"
+        return self._json({"ok": done == len(results), "msg": msg,
+                           "total": len(results), "done": done,
+                           "skipped": skipped, "results": results})
 

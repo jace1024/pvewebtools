@@ -16,8 +16,8 @@ from typing import Any
   不按节点角色切换 nfs/dir，避免共享 storage.cfg 被 server(dir)/client(nfs) 互相改写；NFS 挂载由本工具负责，PVE 只认目录。
 - pvewebtools 根下固定子目录（由 ensure_workspace_dirs() 统一创建，缺则建、存在则跳过）：
   dump/ 存放虚机模板（PVE backup 内容目录）、cloud-images/ 存放云镜像、disk-images/ 存放磁盘镜像、
-  vbios/ 存放显卡 vBIOS、vgpu-drivers/ 存放 NVIDIA vGPU 宿主机驱动（.run）。
-  cloud-images/disk-images/vbios/vgpu-drivers 为项目自管目录；
+  vbios/ 存放显卡 vBIOS。
+  cloud-images/disk-images/vbios 为项目自管目录；
   dump/ 为 PVE backup 内容目录，虚机模板直接落于此处供 PVE 识别。
   所有项目初始化（启动 / 节点接入）均复用 ensure_workspace_dirs()，不走分散创建。
 - pvewebtools 默认声明 备份(backup) / 容器模板(vztmpl) 两类内容（见 DEFAULT_CONTENT，可由配置覆盖）；
@@ -55,8 +55,8 @@ DEFAULT_LOCAL_CONTENT = "images,rootdir,vztmpl,iso,backup,snippets,import"
 # pvewebtools 根下的固定子目录；项目启动时由 ensure_workspace_dirs() 统一创建（缺则建、存在则跳过）
 # - dump/ 为 PVE backup 内容目录，虚机模板直接落于此；
 # - template/cache/ 为 PVE vztmpl 内容目录，LXC 模板下载落于此（提前建好，避免首次下载时目录缺失）；
-# - cloud-images/disk-images/vbios/vgpu-drivers 为项目自管目录，避开 PVE 其它内容目录名。
-WORKSPACE_SUBDIRS = ("dump", "cloud-images", "disk-images", "vbios", "vgpu-drivers", "template/cache")
+# - cloud-images/disk-images/vbios 为项目自管目录，避开 PVE 其它内容目录名。
+WORKSPACE_SUBDIRS = ("dump", "cloud-images", "disk-images", "vbios", "template/cache")
 
 
 def _load_config() -> Any:
@@ -328,7 +328,6 @@ def ensure_workspace_dirs(cfg: Any = None) -> None:
       - cloud-images/ ：含 cloud-init 的云镜像（供云镜像建机 / 制作直接可用）
       - disk-images/  ：普通磁盘镜像（无 cloud-init，供 qm importdisk 磁盘导入 / 制作云镜像原料）
       - vbios/        ：显卡 vBIOS 主副本（跨节点软链到 /usr/share/kvm）
-      - vgpu-drivers/ ：传输中心上传的 NVIDIA vGPU 宿主机驱动（.run，跨节点同路径可见）
     """
     if cfg is None:
         cfg = _load_config()

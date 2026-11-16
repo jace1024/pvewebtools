@@ -41,14 +41,14 @@ if __package__ in (None, ""):
         sys.modules.pop(_m, None)
 
 from core import paths
-from core.pve import pve_api, storage_provision, upgrade
+from core.pve import pve_api, storage_provision
 from core.tools import toolbox
 from core.web import jobs
 
 backend = pve_api
 
 
-from core.web.http_util import (  # noqa: F401  # 输出净化 + HTTP 基础设施（M2/T2.1 抽出）
+from core.web.http_util import (  # noqa: F401  # 输出净化 + HTTP 基础设施
     MAX_BODY_SIZE,
     HttpUtilMixin,
     _DEBUG_DETAIL,
@@ -56,10 +56,10 @@ from core.web.http_util import (  # noqa: F401  # 输出净化 + HTTP 基础设�
     _sanitize_out,
     _sanitize_text,
 )
-from core.web.gate import GateMixin  # 写操作授权闸口（M2/T2.2 抽出）
-from core.web.static_srv import StaticMixin  # 首页/静态资源（M2/T2.3 抽出）
-from core.web.sse import SseMixin  # 任务日志实时推送 SSE（M2/T2.4 抽出）
-from core.web import routers  # 路由表分发协议（M2/T2.5；已迁域见 routers/，T2.6 逐批迁移）
+from core.web.gate import GateMixin  # 写操作闸口
+from core.web.static_srv import StaticMixin  # 首页/静态资源
+from core.web.sse import SseMixin  # 任务日志实时推送 SSE
+from core.web import routers  # 路由表分发协议（各域见 routers/）
 from core.web.routing import (
     RoutingMixin,
 )
@@ -68,44 +68,40 @@ from core.web.routing import (
 from core.web.ops import (
     OpsMixin, _REMOTE_LOCAL_IPS, _node_mgmt_ip,
 )
-from core.web.maintenance import CHUNK_SWEEP_INTERVAL, CHUNK_TTL, LICENSE_REFRESH_INTERVAL, NODES_REFRESH_INTERVAL, _cleanup_orphan_job_tmps, _cleanup_orphan_parts, _download_error_text, _enrich_nodes_slow, _license_refresh_loop, _nodes_refresh_loop, _resume_incomplete_uploads, _sweep_stale_chunks
+from core.web.maintenance import CHUNK_SWEEP_INTERVAL, CHUNK_TTL, NODES_REFRESH_INTERVAL, _cleanup_orphan_job_tmps, _cleanup_orphan_parts, _download_error_text, _enrich_nodes_slow, _nodes_refresh_loop, _resume_incomplete_uploads, _sweep_stale_chunks
 from core.web.template_cache import TEMPLATE_CACHE_DIRNAME, _cache_entry_kind, _cache_entry_name_ok, _cache_lock_busy, _path_is_remote_fs, _read_cache_meta, _template_cache_limit_mb, _template_cache_max_age_days, _template_cache_max_mb, _template_cache_max_ratio, _template_cache_root
 from core.web.handlers import (
-    HandlerMixin, APLINFO_PATH, BACKUP_TMP_DIR, CLOUD_MIRRORS, COMMUNITY_SCRIPTS_DIR,
-    COMMUNITY_SCRIPTS_FALLBACK_DIRS, COMMUNITY_SCRIPT_ACCESS_FILE, COMMUNITY_SCRIPT_CATEGORIES,
-    COMMUNITY_SCRIPT_CATEGORY_FILE, COMMUNITY_SCRIPT_NAME_RE, COMMUNITY_SCRIPT_UNGROUPED,
+    HandlerMixin, APLINFO_PATH, BACKUP_TMP_DIR, CLOUD_MIRRORS,
     DEFAULT_CLOUD_IMAGE_CONFIG, DEFAULT_CLOUD_IMAGE_PRESETS, DEFAULT_CT_SOURCE, DEFAULT_MIRROR_REPO_SUPPORT,
     DISKS_LOST_TTL, DISK_TMP_DIR, LXC_FALLBACK_CT_ROOTS, LXC_SECTION_RE, LXC_TEMPLATE_MIRROR_IDS,
     LXC_TEMPLATE_NAME_RE, LXC_TURNKEY_MIN_DEBIAN, LXC_TURNKEY_VER_RE, MAX_BACKUP_SIZE, MAX_DISK_SIZE,
-    MAX_VBIOS_SIZE, MAX_VGPU_SIZE, MAX_VZTMPL_SIZE, TURNKEY_DOMESTIC_ROOTS, TURNKEY_MIRROR_HOSTS,
-    TURNKEY_OFFICIAL_ROOT, VBIOS_TMP_DIR, VGPU_MATERIAL_EXTS, VGPU_TMP_DIR, VZTMPL_TMP_DIR,
+    MAX_VBIOS_SIZE, MAX_VZTMPL_SIZE, TURNKEY_DOMESTIC_ROOTS, TURNKEY_MIRROR_HOSTS,
+    TURNKEY_OFFICIAL_ROOT, VBIOS_TMP_DIR, VZTMPL_TMP_DIR,
     _BACKUP_EXT_WHITELIST, _CLOUD_COMP_EXTS, _CLUSTER_SRC_TTL, _DOCKER_VER_CACHE, _DOCKER_VER_LOCK,
     _DOCKER_VER_TTL, _DOCKER_VER_URLS, _EFI_PART_TYPE, _LXC_TEMPLATE_MIRROR_LABELS, _MERGE_LOCK,
     _MERGE_STATE, _MS_RESERVED_TYPE, _UPLOAD_INDEX_PATH, _UPLOAD_SIZE_LIMITS, _VBIOS_EXT_WHITELIST,
-    _VGPU_KIND_ORDER, _VGPU_PROBE_CACHE, _VGPU_PROBE_TTL, _WIN_RECOVERY_TYPE, _allowed_backup_ext,
-    _allowed_disk_ext, _allowed_vbios_ext, _allowed_vgpu_ext, _allowed_vztmpl_ext, _backup_dirs_merged,
+    _WIN_RECOVERY_TYPE, _allowed_backup_ext,
+    _allowed_disk_ext, _allowed_vbios_ext, _allowed_vztmpl_ext, _backup_dirs_merged,
     _backup_lock, _backup_template_dir, _blocked_cloud_url, _board_hw_cache, _chunks_complete, _classify_os,
-    _cloud_image_dir, _cluster_src_cache, _cluster_src_lock, _community_script_access,
-    _community_script_category_label, _community_script_groups, _community_script_option_label,
+    _cloud_image_dir, _cluster_src_cache, _cluster_src_lock,
     _cpu_topo_cache, _decompress_file, _disk_image_dir, _disk_lock, _disks_baseline, _disks_lost, _do_merge,
     _docker_ver_fetch, _enrich_node_slow, _fmt_size, _host_arch, _http_alive, _hw_cache, _image_virtual_size,
     _is_cloud_compressed, _list_docker_versions_base, _list_template_backup_files, _lxc_mirror_root,
     _lxc_template_available, _lxc_template_url, _lxc_template_urls, _lxc_turnkey_roots, _maybe_merge_async,
     _merge_backup_chunks, _merge_cluster_nodes, _merge_disk_chunks, _merge_key, _merge_state,
-    _merge_vbios_chunks, _merge_vgpu_chunks, _merge_vztmpl_chunks, _merged_preset_config, _node_backup_files,
+    _merge_vbios_chunks, _merge_vztmpl_chunks, _merged_preset_config, _node_backup_files,
     _node_cpu_topology, _node_disks_lost, _node_from_query, _node_hw_info, _node_online, _nodes_cache,
-    _nodes_cache_lock, _normalize_ct_base, _other_os_disk_names, _parse_vgpu_probe, _pci_bd, _phys_disk_of,
+    _nodes_cache_lock, _normalize_ct_base, _other_os_disk_names, _pci_bd, _phys_disk_of,
     _pve_active_vgs, _pve_storage_disk_names, _pve_system_disk_names, _pveam_bin, _remove_vbios_manifest,
     _resolve_import_disk, _resolve_lxc_section, _rootdir_storages_local, _ssh_read_ct_source,
     _storage_options, _storage_role, _template_cache_dispatch, _template_cache_nodes,
     _template_warmup_script, _upload_index_lock, _upload_index_read, _upload_index_write,
     _upload_received_indexes, _upload_size_error, _upload_target_path, _upload_tmp_dir, _vbios_lock,
-    _vgpu_asset_dir, _vgpu_lock, _vgpu_probe, _vgpu_probe_script, _vgpu_profile_sort_key, _vgpu_vm_usage,
     _vztmpl_lock, _zfs_pool_disks, apply_cloud_mirror, cloud_image_import_path, cloud_image_mirrors,
     collect_nodes, collect_nodes_cached, list_backup_storages, list_byid_disks, list_cloud_storages,
-    list_community_scripts, list_disk_storages, list_docker_versions, list_image_storages,
+    list_disk_storages, list_docker_versions, list_image_storages,
     list_imported_disks, list_lxc_downloaded, list_lxc_storages, list_lxc_templates, list_phys_disks,
-    list_vbios_roms, list_vgpu_files, list_vgpu_gpus, list_vgpu_materials, list_vgpu_types, list_vm_disks,
+    list_vbios_roms, list_vm_disks,
     list_vztmpl_storages, load_cloud_image_presets, lxc_batch_swap, lxc_cluster_sources, lxc_ct_source,
     lxc_template_base, lxc_template_dest, lxc_template_mirrors, node_board_hw, probe_cloud_image_presets,
     reset_cloud_image_presets, save_cloud_image_presets, upload_instant_hit, upload_instant_register,
@@ -118,7 +114,7 @@ from core.web.host_util import _is_cluster_node, _local_outbound_ip, _norm_confi
 class SilentHTTPServer(ThreadingHTTPServer):
     """吞掉客户端中途断开（取消下载/关闭页面）产生的 BrokenPipe/连接重置异常，并避免把
     其它异常按 BaseHTTPRequestHandler 默认行为打印完整栈追踪（栈里含 .py 路径与解释器细节）。
-    细节仅在 --debug 模式下输出（编译产物无此出口，见 _DEBUG_HINT）。"""
+    细节仅在 --debug 模式下输出（见 _DEBUG_HINT）。"""
     def handle_error(self, request, client_address):  # noqa: ARG002
         exc = sys.exc_info()[1]
         if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
@@ -165,27 +161,7 @@ class SilentHTTPServer(ThreadingHTTPServer):
 # revision-control / trac），这些应用已被 TurnKey 上游移除（新版索引里 0 条），实测在中科大与
 # TurnKey 官方镜像上也没有对应文件，选中必然 404。这里直接从列表剔除，避免用户选到注定失败的模板。
 # 其余分类（system 等）索引与镜像完全一致，不做过滤。
-# ---- 社区脚本（community-scripts）：本地化仓库的可安装应用清单 ----
-# 仓库由「社区脚本(community-scripts)」工具从 Gitee 镜像（pve-community-scripts）同步到本地；
-# 这里只读它的 ProxmoxVE/ct/*.sh（一键安装的 LXC 应用脚本）。与 pveam 的 CT 模板无关。
-# 兼容迁移前的旧位置（历史机器上可能仍在 /opt）：默认位置找不到时才回退到这些目录
-# 脚本名（不含 .sh）严格校验：字母数字开头，仅含字母数字 . _ -（防异常文件名/路径穿越）
-# ---- 官网分类（community-scripts.org 的 script_categories，共 28 条）----
-# 官网/引擎都按这套分类组织脚本（官网「All scripts」页的 By category），这里照搬：
-# id → (中文名, 官网英文名, sort_order)。名字与排序内置在程序里、而非每次读快照：
-# 分类表几乎不变（一年加一两条），而快照（slug → 分类 id）每次同步仓库都可能变。
-# 下拉里显示成「中文（English）」，英文名与官网分类页一致，便于对照。
-# 分类快照：由 fork 仓库根目录的 gen-scripts-categories.py 从官网 PocketBase 导出，
-# 随「同步/更新本地仓库」下发。放仓库根而不是 ProxmoxVE/ 或 core/ —— 同步器会整目录重铺那两棵树。
-# 访问信息快照：由 fork 仓库同一个生成脚本从官网 PocketBase 一并导出（slug → port/default_user/default_passwd），
-# 同样随「同步/更新本地仓库」下发，放仓库根的理由同上（只有根目录文件能活过同步）。
-# 关键：快照缺失 ≠ 该应用没有凭据。前者是「我们不知道」，前端必须不显示；后者才显示
-# 「无预设账号密码，首次访问自建」。故本文件缺失时返回空字典，且 list 里不带 access 键。
-# 官网库里查不到记录的应用（上游 ct/ 有文件、官方数据没登记，如 readarr / jellyseerr / mysql）：
-# 统一归到最后一组，不丢可选项。分组名直说「官网未收录」——它不是官网那 28 个分类之一，
-# 所以后面不缀英文名（没有官方原名可对），在一堆「中文（English）」里也正好一眼看出区别。
-# 注意取值顺序与 COMMUNITY_SCRIPT_CATEGORIES 不同：这里是 (排序, 分组名)，与 _community_script_groups 的返回一致
-# ---- Docker 引擎稳定版清单（「虚机内装 Docker」版本下拉数据源） ----
+# ---- Docker 引擎稳定版清单（「一键安装Docker」版本下拉数据源） ----
 
 # 依次尝试的版本清单源：docker-ce/linux/static/stable/<arch>/ 目录列表。
 # 静态 tgz 与发行版无关、覆盖该仓库已发布的全部稳定版；国内镜像优先。
@@ -197,17 +173,6 @@ class SilentHTTPServer(ThreadingHTTPServer):
 #
 # 跨节点：vBIOS 主副本放在 pvewebtools 共享存储的 vbios/（NFS 共享，目录名自描述），
 # 清单也写在共享存储（集群统一）；本机 /usr/share/kvm/ 仅放指向主副本的软链（PVE romfile 硬约束）。
-# NVIDIA vGPU 宿主机物料上传：三类文件统一落 pvewebtools 共享存储根下的 vgpu-drivers/
-# （NFS 共享，各节点同路径可见），供「N卡 vGPU 宿主机准备」在任意节点直接取用，无需逐节点重复上传：
-#   - .run   宿主机驱动安装包（NVIDIA-Linux-x86_64-<版本>-vgpu-kvm.run）
-#   - .patch 消费级卡解锁补丁（vgpu-proxmox 项目产物，文件名即驱动版本，如 535.161.05.patch）
-#   - .so    解锁库（vgpu_unlock-rs 编译产物 libvgpu_unlock_rs.so，由 nvidia 服务 LD_PRELOAD 注入）
-# ── vGPU 分配：「N卡 vGPU 分配」工具的显卡 / 规格下拉数据源 ────────────────────────────
-# 规格从 sysfs 读（/sys/bus/pci/devices/<BDF>/mdev_supported_types/），与 PVE WebUI 的
-# mdev 下拉同源：比解析 mdevctl 文本更稳，且天然带 parent（能确定规格属于哪张卡）；
-# 再用 mdevctl types 的 Available instances 补上「上限」一列。
-# mdev 是节点级资源，必须到「执行节点」上采集（非本机走免密 SSH）；短缓存避免批量下拉重复 SSH。
-# 规格用途分组权重：Q 虚拟工作站 → B 虚拟桌面 → A 虚拟应用 → C 纯计算
 # 分片残留自动清理：后台线程定时扫描临时目录，删除超过 N 秒未更新的分片目录
 # （上传中断/浏览器刷新残留的半截分片）。正常上传会持续刷新目录 mtime，不会被误删。
 # ── 后台异步合并：分片收齐即响应，合并交给后台线程 ─────────────────────────────
@@ -222,8 +187,6 @@ class SilentHTTPServer(ThreadingHTTPServer):
 # 两端不会因算法差异而永远不命中。命中即跳过整个上传（0 字节传输）。
 # 清单落本机 /etc/pvewebtools/upload-index.json：秒传仅在「本节点 + 目标文件仍存在且大小一致」
 # 时生效，换节点或文件被删都只是不命中（退回正常上传），不会误判。
-# 虚机电源操作的跟踪实现（_wait_guest_status / _track_guest_power）已随 vm 域一起迁到
-# core/web/routers/vm.py（M2/T2.6 深化第三批：vm 域自包含）。
 
 # static 资源目录：由 paths.RESOURCE_DIR 统一解析（打包解压目录 / 源码包目录）
 STATIC_DIR = paths.RESOURCE_DIR / "static"
@@ -251,13 +214,9 @@ def load_mirror_repo_support():
     return _merged_preset_config()["mirror_repo_support"]
 
 
-# TTLCache 已随硬件信息缓存搬到 core/web/handlers.py（M2/T2.6 深化第四批）。
-
-
 # 节点硬件信息缓存：CPU 型号/内核版本几乎不变，没必要每次轮询都调 pvesh
 # 主板/芯片组型号探测缓存：硬件信息几乎不变，长 TTL
 # /api/nodes 采集要跑一串外部命令，结果短缓存：前端 10 秒一轮询，多开页面/并发请求不重复采集
-# _nodes_preheating 已随 collect_nodes_cached 搬到 core/web/handlers.py（M2/T2.7 顺带修复）。
 # 概览采集改为「后台异步预热 + 前台只读缓存」：
 # - 后台守护线程每 NODES_REFRESH_INTERVAL 秒静默采集一次，更新缓存；
 # - 前端 10 秒轮询永远命中缓存、毫秒级返回，不因采集慢而阻塞；
@@ -318,63 +277,30 @@ class ApiHandler(RoutingMixin, OpsMixin, HandlerMixin, GateMixin, StaticMixin, S
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
-    # ---- HTTP 基础设施（end_headers / _send_json / _error / _read_body / 静态发送 / gzip）
-    # 已抽出到 core/web/http_util.py 的 HttpUtilMixin（结构重构 M2/T2.1）
-
-    # ---- SSE（任务日志实时推送）已抽出到 core/web/sse.py 的 SseMixin（M2/T2.4）
-
-    # ---- 路由分发 ----
-
-    # 写操作授权闸口 _gate_write 已抽出到 core/web/gate.py 的 GateMixin（M2/T2.2）
-
-    # HTTP 方法入口（do_GET / do_POST / do_DELETE / do_PUT）与路由分发已搬到
-    # core/web/routing.py 的 RoutingMixin（M2/T2.6 深化第九批）。
-    # 首页与静态资源服务 _serve_index 在 core/web/static_srv.py 的 StaticMixin（M2/T2.3）。
+    # 各职责按 mixin 分工，本类只把它们拼起来：
+    #   HttpUtilMixin（http_util.py）—— HTTP 基础设施与响应出口净化
+    #   SseMixin（sse.py）           —— 任务日志实时推送
+    #   RoutingMixin（routing.py）    —— 四个 HTTP 方法入口与路由分发
+    #   StaticMixin（static_srv.py）  —— 首页与静态资源服务
+    #   GateMixin（gate.py）         —— 写操作公共闸口
 
     # 允许被 /api/options 批量代理的只读下拉数据源白名单（避免被当成任意转发代理，最小暴露面）
     _OPTION_SOURCES = {
         ("guests",), ("pci",), ("pci", "nics"), ("pci", "gpus"), ("pci", "generic"),
         ("pci", "vfio"), ("usb", "devices"), ("kernels",), ("kernels", "available"),
         ("grub", "backups"), ("network", "backups"), ("network", "bridges"),
-        ("network", "vlans"), ("network", "interfaces"), ("vbios", "roms"), ("vgpu", "materials"),
-        ("vgpu", "gpus"), ("vgpu", "types"),   # 「N卡 vGPU 分配」：显卡 / mdev 规格下拉
+        ("network", "vlans"), ("network", "interfaces"), ("vbios", "roms"),
         ("disks",), ("disks", "byid"), ("disks", "storages"), ("disks", "imported"),
         ("disks", "vm"), ("storages", "images"), ("backup", "storages"), ("backup", "files"),
         ("storages",), ("lxc-template", "downloaded"),   # 创建 LXC 容器：系统盘存储 / 已下载模板下拉
-        ("community-scripts", "list"),   # 社区脚本(dev)：可安装应用下拉
-        ("docker-versions",),   # 虚机内装 Docker：引擎稳定版版本下拉
+        ("docker-versions",),   # 一键安装Docker：引擎稳定版版本下拉
         ("nodes",),   # 迁移：目标节点下拉（集群成员表，与执行节点无关，见 toolbox.NODE_AGNOSTIC_SOURCES）
     }
 
-    # vm 域的处理实现（guests / snapshots / deploy 默认值 / config / status / onboot /
-    # description / rename / power action）已迁到 routers/vm.py（M2/T2.6 深化第三批）。
-
-    # ---- 存储域：处理入口（被 routers/storage.py 登记，M2/T2.6 第四批）----
-
-    # ---- 网络与硬件直通域：处理入口（被 routers/network.py 登记，M2/T2.6 第五批）----
-
-    # ---- 传输中心域：处理入口（被 routers/transfer.py 登记，M2/T2.6 第六批）----
-
-    # ---- 镜像下载域：处理入口（被 routers/download.py 登记，M2/T2.6 第七批）----
-    # 注：cloud-image/{status,list,download,cancel} 与 lxc-template/{available,storages,download,
-    # status,list,cancel,batch-source-swap} 的具名方法已存在于本文件后段，无需在此重复定义。
-
-    # ---- 工具箱与任务队列域：处理入口（被 routers/toolbox.py 登记，M2/T2.6 第八批）----
-
-    # ---- 集群 / 系统升级 / 元信息域：处理入口（M2/T2.6 第九批，被 routers/{cluster,upgrade,system}.py 登记）----
-
-    # 升级域的处理实现（status / log / upload / inspect / apply / rollback / package）
-    # 已迁到 routers/upgrade.py（M2/T2.6 深化第二批：upgrade 域自包含）。
-
-    # ---- 系统升级 ----
-
-    # _handle_upgrade_{upload,inspect,apply} 已迁到 routers/upgrade.py（M2/T2.6 深化第二批）。
-
-    # 后台下载进度表（_cloud_dl / _cloud_dl_cancel / _lxc_dl / _lxc_dl_cancel）已随下载线程
-    # 搬到 core/web/ops.py 的 OpsMixin（M2/T2.6 深化第七批），仍以 type(self)._cloud_dl 访问。
-
-    # LXC(CT) 模板相关方法（可用列表 / 后台下载 / 进度 / 取消）已随 download 域迁到
-    # routers/download.py 与 core/web/ops.py；授权域实现已迁到 routers/license.py。
+    # 各域的处理入口按域登记在 routers/（vm / storage / network / transfer / download /
+    # toolbox / node / cluster / system / auth），本类只保留跨域共用的实现。
+    # 后台下载进度表（_cloud_dl / _cloud_dl_cancel / _lxc_dl / _lxc_dl_cancel）在
+    # core/web/ops.py 的 OpsMixin，以 type(self)._cloud_dl 访问。
     def log_message(self, fmt, *args):
         # 只记录 API 与错误，避免静态资源刷屏；args 可能含 HTTPStatus 枚举，先转字符串再判断
         joined = " ".join(str(a) for a in args)
