@@ -82,24 +82,40 @@
 
 ## 部署（PVE 主机）
 
+**前置要求**：一台 PVE 8.x / 9.x 宿主机（root 权限，自带 Python 3.9+），无需安装任何依赖。
+
 ```bash
 # 1. 把整个仓库复制到 PVE 主机（任意目录，例如 /root/pvewebtools）
 scp -r pvewebtools root@<PVE_IP>:/root/
 
-# 2. 一键安装（默认装到 /etc/pvewebtools、端口 8899）
+# 2. 一键安装
 ssh root@<PVE_IP>
 cd /root/pvewebtools
-sudo ./install.sh              # 也可 sudo ./install.sh 9000 指定端口
+sudo ./install.sh                 # 默认安装到 /etc/pvewebtools，端口 8899
+sudo ./install.sh 9000            # 指定端口
+sudo ./install.sh 9000 /opt/pwt   # 指定端口 + 安装目录
 
-# 3. 浏览器访问
-#    http://<PVE_IP>:8899
+# 3. 浏览器访问（首次会要求登录，见下节）
+#    未探测到证书：http://<PVE_IP>:8899
+#    探测到证书：  https://<PVE_IP>:8899
 ```
 
-`install.sh` 会完成：同步程序目录 → 注册 `pvewebtools.service`（开机自启 + 崩溃自动拉起）
-→ 创建登录账号 `pvewebtools@pve` → 探测证书（有证书则默认启用 HTTPS）。
+`install.sh` 依次完成：同步程序目录 → 注册 `pvewebtools.service`（开机自启 + 崩溃自动拉起）
+→ 创建登录账号 `pvewebtools@pve` → 探测证书（找到就启用 HTTPS）。
+
+安装后常用命令：
+
+```bash
+systemctl status pvewebtools        # 运行状态
+journalctl -u pvewebtools -f        # 跟踪日志
+systemctl restart pvewebtools       # 重启（改配置后）
+```
 
 > **升级**：拉取新版本后重跑 `sudo ./install.sh` 即可（端口 / 账号 / 证书沿用）。
-> **升级方式**：替换程序目录 + `systemctl restart pvewebtools`（无产品内升级入口）。
+> 升级后可能需要重新登录（见「登录认证」里的 `session.secret` 说明）。
+
+> **卸载**：
+> `systemctl disable --now pvewebtools && rm -rf /etc/pvewebtools /etc/systemd/system/pvewebtools.service`
 
 > **临时运行 / 调试**（不注册服务，前台跑）：在仓库根目录直接
 > `python3 -m core.web.server [端口]`（默认 8899），`Ctrl+C` 停止。
@@ -109,8 +125,11 @@ sudo ./install.sh              # 也可 sudo ./install.sh 9000 指定端口
 - 默认开启登录门禁，默认账号 `pvewebtools`（只输 `pvewebtools` 等价 `pvewebtools@pve`），
   PVE 若启用 TFA 还需输入动态码。
 - 初始密码 `pvewebtools`，**首次登录强制修改**（改密成功前不签发会话）。
+- 登录态是 HMAC 签名的会话 Cookie，有效期 **12 小时**；签名密钥持久化在
+  `/etc/pvewebtools/session.secret`，因此重启服务不会掉登录——除非该文件被删除或不可写
+  （此时会临时生成新密钥，旧会话全部失效，刷新页面重登即可）。
 - 临时关闭（破窗）：启动命令追加 `--no-auth`（如 `python3 -m core.web.server --no-auth`）。
-- 写入门禁相关环境变量由安装脚本写入 systemd 单元：
+- 登录相关环境变量由安装脚本写入 systemd 单元：
   `PVE_WEBTOOLS_ALLOW_USERS=pvewebtools@pve`、`PVE_WEBTOOLS_DEFAULT_REALM=pve`。
 
 日常管理：
@@ -164,6 +183,10 @@ systemctl daemon-reload
 systemctl enable --now pvewebtools
 ```
 
+> 手工注册时单元里**没有** `PVE_WEBTOOLS_ALLOW_USERS`，此时允许任意 PVE 账号登录；
+> 想限制成专用账号，在 `[Service]` 段补两行：
+> `Environment=PVE_WEBTOOLS_ALLOW_USERS=pvewebtools@pve` 与 `Environment=PVE_WEBTOOLS_DEFAULT_REALM=pve`。
+
 ## 工作原理
 
 - 后端 `core/web/server.py` 用标准库 `http.server` 提供 HTTP 服务与 JSON API
@@ -187,6 +210,33 @@ systemctl enable --now pvewebtools
 ssh -L 8899:127.0.0.1:8899 root@<PVE_IP>
 ```
 
+## 常见问题
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| 打开页面就要求登录 | 登录门禁默认开启；账号 `pvewebtools`，初始密码 `pvewebtools`，首次登录必须改密 |
+| 操作时提示「未登录或会话已过期」 | 会话超过 12 小时，或 `session.secret` 变更导致旧 Cookie 失效；刷新页面重新登录即可 |
+| 地址栏提示「不安全」/ 证书告警 | 当前用 HTTP 启动，或用的是 PVE 自带证书（签名对象是节点名）。加 `--tls`，或把自己的证书放进 `tls/` |
+| 端口被占用 / 想换端口 | 用 `install.sh` 重新指定端口，或改 systemd 单元 `ExecStart` 后 `systemctl daemon-reload` |
+| 启动即退出，日志里提示缺少 `pvesh` | 本工具只能部署在 PVE 宿主机上（启动时会检查 `pvesh`） |
+| 页面打不开 / 前端报 `Failed to fetch` | `journalctl -u pvewebtools -n 50` 看服务日志；浏览器侧多为会话失效，重登即可 |
+
+界面内「设置 → 帮助手册」有按现象检索的完整清单，每个工具对应的入口都在里面。
+
+## 开发
+
+```bash
+pip install -r requirements-dev.txt   # 仅开发期：pytest / ruff
+python -m core.web.server             # 前台运行（非 PVE 环境会因缺少 pvesh 拒绝启动）
+
+pytest                                # 全部用例
+ruff check .                          # 静态检查
+python scripts/lint_shell.py          # bash 脚本检查（需 shellcheck）
+python scripts/lint_tool_sources.py   # 工具下拉数据源登记检查
+```
+
+架构、路由与新增工具的说明见 [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)，贡献流程见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
 ## 目录结构
 
 ```
@@ -204,7 +254,7 @@ pvewebtools/          # 仓库根（目录名 = 产品名；启动按包路径 p
 │   │   ├── toolbox_common.py# 工具脚本共享的 bash 辅助函数与镜像源表
 │   │   ├── tools_*.py       # 各分类工具集（optimize/kernel/passthrough/vmops/network/storage/rescue）
 │   │   └── scripts/         # 各工具对应的 bash 实现
-│   ├── version.py           # 版本号 / 形态 / 构建串展示
+│   ├── version.py           # 版本号读取（供版本胶囊与 /api/edition）
 │   ├── paths.py             # 资源与数据目录统一解析
 │   ├── VERSION              # 产品版本号
 │   ├── static/              # 前端页面（index.html / style.css / app.js / js/ / zh.js）
