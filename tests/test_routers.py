@@ -1,4 +1,4 @@
-"""M2/T2.5 路由分发协议单测。
+"""路由分发协议单测。
 
 覆盖协议本身（模板匹配 / 表合并 / 查表分发 / 通配保序），以及两条「防漏」纪律：
 ① 路由表里的方法名必须在 ``ApiHandler`` 上真实存在——写错或被删只有请求打过来才 500；
@@ -12,8 +12,7 @@ from pathlib import Path
 import pytest
 
 from core.web.routers import TABLES, dispatch
-from core.web.routers import license as license_routes
-from core.web.routers import upgrade as upgrade_routes
+from core.web.routers import node as node_routes
 from core.web.routers import vm as vm_routes
 from core.web.routers.dispatch import Table, match
 
@@ -155,18 +154,6 @@ def test_pattern_bucket_keeps_declaration_order():
 
 # ---- 实际路由表 ----
 
-def test_license_domain_registered():
-    """license 域已自包含（实现也迁进 routers/license.py），四个目标都是模块内函数。"""
-    assert TABLES["get"].find(["license", "status"])[0] is license_routes._status
-    targets = {"license/token": license_routes._token_add,
-               "license/token/remove": license_routes._token_remove,
-               "license/fingerprint": license_routes._fingerprint}
-    for template, expected in targets.items():
-        target, params = TABLES["post"].find(template.split("/"))
-        assert target is expected, template
-        assert params == {}, template
-
-
 def test_system_domain_registered():
     target, params = TABLES["get"].find(["options"])
     assert target == "_handle_options"
@@ -179,7 +166,10 @@ def test_node_domain_registered():
     assert params == {}
 
     assert TABLES["post"].find(["node", "join-init"])[0] == "_handle_node_join_init"
-    for action in ("reboot", "storage-fix", "nfs-server-fix"):
+    # 整页全局「一键修复」是两段静态路径，不能被 nodes/<node>/... 三段模板抢先匹配
+    assert TABLES["post"].find(["nodes", "storage-fix-all"]) == (
+        node_routes._storage_fix_all, {})
+    for action in ("reboot", "shutdown", "storage-fix", "nfs-server-fix"):
         target, params = TABLES["post"].find(["nodes", "pve1", action])
         assert callable(target), action
         assert params == {"node": "pve1"}, action
@@ -260,12 +250,11 @@ def test_network_domain_registered():
 
 
 def test_transfer_domain_registered():
-    """transfer 域 23 条路由均为无路径参数的精确项（含 vgpu/gpus 与 vgpu/types 拆出的两条）。"""
+    """transfer 域 17 条路由均为无路径参数的精确项。"""
     get_paths = (["upload", "status"], ["upload", "verify"], ["backup", "storages"],
                  ["backup", "files"], ["backup", "download"], ["template-cache", "nodes"],
-                 ["template-cache"], ["vbios", "roms"], ["vgpu", "materials"], ["vgpu", "gpus"],
-                 ["vgpu", "types"], ["community-scripts", "list"], ["docker-versions"])
-    post_paths = (["backup", "upload"], ["vbios", "upload"], ["vbios", "sync"], ["vgpu", "upload"],
+                 ["template-cache"], ["vbios", "roms"], ["docker-versions"])
+    post_paths = (["backup", "upload"], ["vbios", "upload"], ["vbios", "sync"],
                   ["upload", "register"], ["template-cache", "warmup"], ["template-cache", "expire"])
     delete_paths = (["template-cache"], ["backup"], ["vbios"])
 
@@ -274,10 +263,6 @@ def test_transfer_domain_registered():
             target, params = TABLES[method].find(path)
             assert isinstance(target, str), "%s %s" % (method, path)
             assert params == {}, "%s %s" % (method, path)
-
-    # 旧链里的 `parts in (["vgpu","gpus"], ["vgpu","types"])` 拆分后两条各自独立命中
-    assert TABLES["get"].find(["vgpu", "gpus"])[0] == "_handle_vgpu_gpus"
-    assert TABLES["get"].find(["vgpu", "types"])[0] == "_handle_vgpu_types"
 
 
 def test_download_domain_registered():
@@ -327,19 +312,12 @@ def test_toolbox_domain_registered():
         assert params == {key: path[1]}, "%s %s" % (method, path)
 
 
-def test_cluster_and_upgrade_domains_registered():
-    """第九批：cluster 以方法名登记；upgrade 已自包含（实现迁进 routers/upgrade.py）。"""
+def test_cluster_domain_registered():
+    """cluster 域以方法名登记。"""
     for path in (["cluster", "info"], ["cluster", "quorum"], ["edition"], ["schedules"]):
         target, params = TABLES["get"].find(path)
         assert isinstance(target, str), path
         assert params == {}, path
-
-    assert TABLES["get"].find(["upgrade", "status"])[0] is upgrade_routes._status
-    assert TABLES["get"].find(["upgrade", "log"])[0] is upgrade_routes._log
-    assert TABLES["post"].find(["upgrade", "rollback"])[0] is upgrade_routes._rollback
-    assert TABLES["delete"].find(["upgrade", "package"])[0] is upgrade_routes._package_delete
-    for path in (["upgrade", "upload"], ["upgrade", "inspect"], ["upgrade", "apply"]):
-        assert TABLES["post"].find(path)[0] is not None, path
 
     for path in (["cluster", "create"], ["cluster", "join"],
                  ["cluster", "quorum", "degrade"], ["cluster", "quorum", "restore"]):
@@ -358,7 +336,7 @@ def test_dispatch_methods_have_no_business_branches():
     ``self._error(...)``）。一旦出现赋值、``return self._xxx()`` 等语句，就说明还有域
     没有迁到路由表——这是 M2 剩余的活，不该被悄悄合进来。
 
-    四个方法现在住在 ``core/web/routing.py`` 的 ``RoutingMixin`` 里（M2/T2.6 深化第九批）。
+    四个方法住在 ``core/web/routing.py`` 的 ``RoutingMixin`` 里。
     """
     import ast
 

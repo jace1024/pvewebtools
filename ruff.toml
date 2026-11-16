@@ -9,10 +9,10 @@ target-version = "py311"
 line-length = 120
 
 extend-exclude = [
-    "console",        # 打包/授权管理台，独立工程
     ".venv",
     "build",
     "dist",
+    "logs",
 ]
 
 [lint]
