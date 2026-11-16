@@ -663,11 +663,28 @@
         <details class="help-sec" open>
           <summary>快速上手</summary>
           <ul>
-            <li>浏览器访问 <span class="mono">https://&lt;PVE_IP&gt;:8899</span>（默认端口 8899）；默认账号 <span class="mono">pvewebtools</span>（只输 pvewebtools 等价 pvewebtools@pve）。</li>
+            <li>浏览器访问 <span class="mono">&lt;http 或 https&gt;://&lt;PVE_IP&gt;:8899</span>（默认端口 8899；启用 TLS 时是 https）；未登录会先要求登录，默认账号 <span class="mono">pvewebtools</span>（只输 pvewebtools 等价 pvewebtools@pve）。</li>
             <li>顶部五个页签：<b>概览 / 节点管理 / 工具箱 / 传输中心 / 执行日志</b>。</li>
             <li>概览每 10 秒自动刷新；右上角「刷新」可手动拉取最新数据。</li>
             <li>右上角「<b>设置</b>」里是本帮助手册与当前版本号。</li>
             <li>所有写配置的操作执行前都会自动备份，对应工具内提供「从备份恢复」，改坏了可随时还原。</li>
+          </ul>
+        </details>
+
+        <details class="help-sec">
+          <summary>登录与访问（HTTP / HTTPS）</summary>
+          <p style="font-size:13px;font-weight:600;margin:0 0 6px">登录</p>
+          <ul>
+            <li>默认账号 <span class="mono">pvewebtools</span>，初始密码 <span class="mono">pvewebtools</span>，<b>首次登录强制改密</b>；PVE 若启用了 TFA，还需填动态码。</li>
+            <li>登录态是 HMAC 签名的会话 Cookie（<span class="mono">pwt_session</span>），有效期 <b>12 小时</b>；到期、服务重启或访问端口变化后都需要重新登录。</li>
+            <li>忘记密码：<span class="mono">pveum passwd pvewebtools@pve</span>。彻底关掉登录门禁（仅限可信内网）：启动加 <span class="mono">--no-auth</span>。</li>
+          </ul>
+          <p class="u-subhead">HTTP 还是 HTTPS</p>
+          <ul>
+            <li>启动时<b>不加参数就是 HTTP</b>（明文传输，账号密码也是明文）；需要加密时加 <span class="mono">--tls</span>，由程序自动查找证书。</li>
+            <li>证书查找顺序：环境变量 <span class="mono">PVE_WEBTOOLS_TLS_CERT/KEY</span> → 程序目录下 <span class="mono">tls/</span> 或 <span class="mono">certs/</span>（<span class="mono">fullchain.pem</span>+<span class="mono">privkey.pem</span>，或 <span class="mono">cert.pem</span>+<span class="mono">key.pem</span>）→ PVE 自带证书 <span class="mono">/etc/pve/local/pve-ssl.pem|key</span>。</li>
+            <li>用 PVE 自带证书时浏览器会提示「证书不受信任 / 主机名不匹配」——它是给 PVE 自己的 8006 签发的，链路仍然加密。想要绿锁，把自己的证书放到 <span class="mono">tls/</span>。</li>
+            <li>用 <span class="mono">install.sh</span> 部署时会自动探测上述证书，找到就带 <span class="mono">--tls</span> 写进 systemd 单元，所以正式部署通常是 HTTPS；手动 <span class="mono">python3 -m core.web.server 8899</span> 前台跑则默认 HTTP。</li>
           </ul>
         </details>
 
@@ -677,7 +694,7 @@
             <li><b>概览</b>：节点 CPU / 内存 / 硬盘 / 网卡 / 显卡实时概览；虚拟机与容器统一列表，支持搜索筛选、分页、批量启停、开机自启开关、重命名、查看完整配置。</li>
             <li><b>节点管理</b>：集群节点列表；「+ 加入节点」把新 PVE 主机拉入当前集群，并自动完成共享存储挂载与 vBIOS 同步；卡片行尾一个「操作」下拉（重启节点、重启 PVE 服务、一键诊断、关机；后两项结果汇总在列表上方，关机需输入确认词且无远程开机能力），以及工具栏全局的「修复共享存储」按钮——一键修复所有节点：后端先修 NFS 导出端（装/起服务、写 /etc/exports 后重新导出），再逐台重挂客户端 NFS 并铺 vBIOS 软链；离线/占位节点自动跳过，结果在列表上方逐台展示。</li>
             <li><b>节点管理 · 临时取得仲裁</b>：两台集群里一台宕机时，另一台会失去仲裁，PVE 把 <span class="mono">/etc/pve</span> 置为只读，于是<b>建机、改配置等写操作全部失败</b>（报 no quorum）。此时可在节点列表页顶部提示条或离线节点行点「<b>临时取得仲裁</b>」（等价的 <span class="mono">pvecm expected</span>），把预期票数下调到在线节点数，立刻恢复写操作。它<b>只改运行时票数</b>：不改集群配置、不删节点、不影响任何虚机，corosync 重启后自动失效；失联节点恢复后请点「<b>恢复正常仲裁</b>」还原。出于安全，该按钮仅在<b>在线与不可达节点数相等</b>（偶数集群恰好掉一半）时出现——此时对面票数不足达标门槛、不会双写；奇数集群（3 台及以上）不提供该入口，掉 1 台本来就仍有仲裁。</li>
-            <li><b>工具箱</b>：按分类排列的运维工具，可搜索；高危操作需输入工具名确认。</li>
+            <li><b>工具箱</b>：按分类排列的 50 个运维工具，可搜索；高危操作需输入工具名确认。其中「虚机/容器运维」含建机、快照、克隆、备份、定时开关机、迁移，以及<b>虚机内装 Docker</b>、<b>一键部署 K8S</b>（经 Guest Agent 在虚机内执行，不动 PVE 宿主）。</li>
             <li><b>传输中心</b>：向共享存储上传虚机模板 / 云镜像 / 磁盘镜像 / vBIOS ROM；下载官方云镜像与 LXC 容器模板；浏览并批量删除存储内容。</li>
             <li><b>执行日志</b>：工具箱任务历史、步骤时间线与完整日志回看，可按状态筛选、按时间批量清理。</li>
           </ul>
@@ -835,10 +852,17 @@
             <li><b>只想看某个节点的虚机/容器</b> → 点节点卡片筛选（或顶部节点标签），再点标签上的 ✕ 清除。</li>
             <li><b>数据看着不新</b> → 右上角「刷新」手动拉最新（概览本身每 10 秒自动刷新，慢采集项走后台缓存）。</li>
           </ul>
-          <p class="u-subhead">授权</p>
+          <p class="u-subhead">加入节点与集群</p>
           <ul>
             <li><b>需要授权码 / 机器数量限制吗</b> → 不需要：不限机器数量、没有授权码。</li>
             <li><b>加节点失败怎么排查</b> → 确认新节点 root 密码正确、22 端口可达，且本机已装 ssh 与 setsid。</li>
+          </ul>
+          <p class="u-subhead">访问与登录</p>
+          <ul>
+            <li><b>点任何操作都提示「未登录或会话已过期」</b> → 会话超过 12 小时、服务重启或访问端口变化后，旧 Cookie 全部失效：<b>刷新页面重新登录</b>即可，数据不会丢。</li>
+            <li><b>地址栏提示「不安全」/ 证书告警</b> → 当前是 HTTP，或用的是 PVE 自带证书（签名对象是节点名）。加 <span class="mono">--tls</span>，或把自己的证书放进程序目录的 <span class="mono">tls/</span> 后重启。</li>
+            <li><b>想换端口</b> → 启动参数改成别的端口后重启服务；Cookie 与端口绑定，换端口需要重新登录。</li>
+            <li><b>登录页要求改密</b> → 首次登录必须修改默认密码，改密成功前不会签发会话。</li>
           </ul>
           <p class="u-subhead">通用</p>
           <ul>
@@ -854,9 +878,10 @@
         <details class="help-sec">
           <summary>手工升级</summary>
           <ol>
-            <li>升级方式为<b>替换程序目录后重启服务</b>。</li>
-            <li>拉取新版本代码（或解压新发行包）覆盖部署目录，然后 <span class="mono">systemctl restart pvewebtools</span>。</li>
-            <li>配置文件（<span class="mono">/etc/pvewebtools/</span> 下的存储配置、日志）不在程序目录内，覆盖不会丢。</li>
+            <li>升级方式为<b>替换程序目录后重启服务</b>：拉取新版本代码（或解压新发行包）覆盖部署目录，然后 <span class="mono">systemctl restart pvewebtools</span>。</li>
+            <li>用 <span class="mono">install.sh</span> 部署的，直接再跑一次 <span class="mono">sudo ./install.sh</span> 即可，端口 / 账号 / 证书沿用。</li>
+            <li>配置文件（<span class="mono">/etc/pvewebtools/</span> 下的共享存储配置、<span class="mono">session.secret</span>、日志）不在程序目录内，覆盖不会丢。</li>
+            <li>升级后如需重新登录，属正常现象（<span class="mono">session.secret</span> 变化或端口变化会使旧会话失效），刷新页面重登即可。</li>
           </ol>
         </details>
       </section>
