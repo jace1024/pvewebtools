@@ -45,13 +45,12 @@ python -m core.web.server              # 默认 8899 端口；--no-auth 可关�
 
 ## 贡献许可
 
-本项目以 [GNU GPL v3.0](./LICENSE) 发布（另提供商业许可，见
-[LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md)）。提交贡献即表示你同意：
+本项目以 [GNU GPL v3.0](./LICENSE) 发布。提交贡献即表示你同意：
 
 1. 你拥有所提交内容的版权，或已取得版权人的授权；
 2. 你的贡献以 GPL-3.0 授权给本项目及其使用者；
-3. 你同意维护者可在未来将本项目（含你的贡献）以其它条款再许可，包括商业许可
-   —— 这一条用于保留双许可的灵活性，请确认后再提交。
+3. 你同意维护者可在协议升级等必要场景对你的贡献做再许可（例如随项目迁移到更新版本的
+   GPL 或与之兼容的许可证）。
 
 提交时请在 commit message 末尾带一行 `Signed-off-by: 名字 <邮箱>`（`git commit -s` 会自动添加），
 表示你同意 [Developer Certificate of Origin](https://developercertificate.org/)。
