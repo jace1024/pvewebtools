@@ -1,5 +1,17 @@
 
-# ============ 磁盘格式转换（raw <-> qcow2，批量含 EFI 盘） ============
+VMIDS_RAW="${PT_VMID:-}"
+VMIDS=$(echo "$VMIDS_RAW" | tr ',' ' ' | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' ')
+[ -z "$VMIDS" ] && { echo "[错误] 未选择任何有效虚机（VMID）"; exit 1; }
+N=$(echo "$VMIDS" | wc -w)
+echo "===== 处理 $N 台虚机：$VMIDS ====="
+IDX=0
+for VMID in $VMIDS; do
+  IDX=$((IDX+1))
+  PT_VMID="$VMID"
+  echo
+  echo "===== [$IDX/$N] 虚机 $VMID ====="
+  (
+  # ============ 磁盘格式转换（raw <-> qcow2，批量含 EFI 盘） ============
 # 一次把 VM 的全部 raw 磁盘转为目标格式（数据盘 scsi*/virtio*/sata*/ide* + EFI 盘 efidisk*），
 # 并清理 unused* 残留旧盘。raw 不支持快照，转 qcow2 后即可快照。
 [ -n "$PT_VMID" ] || { echo "[错误] 未选择虚拟机"; exit 1; }
@@ -125,3 +137,6 @@ else
 fi
 echo "[提示] 残留 unused 旧盘已清理，可正常开机"
 exit 0
+  )
+done
+echo "===== 全部 $N 台虚机处理完成 ====="

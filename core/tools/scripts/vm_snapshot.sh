@@ -1,5 +1,17 @@
 
-VMID="$PT_VMID"
+VMIDS_RAW="${PT_VMID:-}"
+VMIDS=$(echo "$VMIDS_RAW" | tr ',' ' ' | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' ')
+[ -z "$VMIDS" ] && { echo "[错误] 未选择任何有效虚机（VMID）"; exit 1; }
+N=$(echo "$VMIDS" | wc -w)
+echo "===== 处理 $N 台虚机：$VMIDS ====="
+IDX=0
+for VMID in $VMIDS; do
+  IDX=$((IDX+1))
+  PT_VMID="$VMID"
+  echo
+  echo "===== [$IDX/$N] 虚机 $VMID ====="
+  (
+  VMID="$PT_VMID"
 # 自动识别虚机/容器类型：qm（虚拟机）优先，其次 pct（容器），两者的快照命令同构
 GTYPE=""
 qm status "$VMID" >/dev/null 2>&1 && GTYPE=qm
@@ -111,3 +123,6 @@ if [ "$GTYPE" = "qm" ]; then
 else
  echo "[完成] 已为 $VMID 创建快照 $SNAPNAME（容器快照默认包含运行状态）"
 fi
+  )
+done
+echo "===== 全部 $N 台虚机处理完成 ====="

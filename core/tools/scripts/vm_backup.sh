@@ -1,5 +1,17 @@
 
-ACTION="$PT_ACTION"
+VMIDS_RAW="${PT_VMID:-}"
+VMIDS=$(echo "$VMIDS_RAW" | tr ',' ' ' | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' ')
+[ -z "$VMIDS" ] && { echo "[错误] 未选择任何有效虚机（VMID）"; exit 1; }
+N=$(echo "$VMIDS" | wc -w)
+echo "===== 处理 $N 台虚机：$VMIDS ====="
+IDX=0
+for VMID in $VMIDS; do
+  IDX=$((IDX+1))
+  PT_VMID="$VMID"
+  echo
+  echo "===== [$IDX/$N] 虚机 $VMID ====="
+  (
+  ACTION="$PT_ACTION"
 
 # 销毁残留的 VM/容器（清理还原失败留下的半成品），$1=VMID，带 --purge 一并删除其磁盘
 cleanup_guest() {
@@ -285,3 +297,6 @@ elif [ "$ACTION" = "restore" ]; then
 else
  echo "[错误] 未知操作: $ACTION"; exit 1
 fi
+  )
+done
+echo "===== 全部 $N 台虚机处理完成 ====="

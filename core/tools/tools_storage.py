@@ -55,8 +55,8 @@ TOOLS = [
        "name": "虚机磁盘格式转换",
        "desc": "磁盘在 raw/qcow2/vmdk 间互转（含数据盘与 EFI 盘，自动清理残留旧盘）；raw 不支持快照、vmdk 便于迁 VMware/ESXi。转换前需关机。",
        "params": [
-           {"name": "vmid", "label": "虚机（VMID）", "type": "select", "options_from": "guests",
-            "no_template": True, "pattern": r"^\d+$"},
+           {"name": "vmid", "label": "虚机（VMID，可多选）", "type": "checkbox", "options_from": "guests",
+            "multiple": True, "required": True, "no_template": True, "pattern": r"^\d+(,\d+)*$"},
            {"name": "target", "label": "目标格式", "type": "select", "options": [
                {"value": "qcow2", "label": "QCOW2（支持快照/稀疏，推荐）"},
                {"value": "raw", "label": "RAW（裸格式，性能略高但占满空间、不支持快照）"},
@@ -75,8 +75,8 @@ TOOLS = [
        "name": "虚机磁盘导出",
        "desc": "将磁盘（或所有磁盘）转为指定格式导出到存储目录，便于迁 VMware/Hyper-V/VirtualBox/公有云；vmdk 可被 VMware 识别，vhdx/vdi 仅可下载不能挂回。导出前需关机。",
        "params": [
-           {"name": "vmid", "label": "虚机（VMID）", "type": "select", "options_from": "guests",
-            "no_template": True, "pattern": r"^\d+$"},
+           {"name": "vmid", "label": "虚机（VMID，可多选）", "type": "checkbox", "options_from": "guests",
+            "multiple": True, "required": True, "no_template": True, "pattern": r"^\d+(,\d+)*$"},
            {"name": "disk", "label": "导出磁盘", "type": "select", "required": False, "options_from": "vm_disks"},
            {"name": "target", "label": "目标格式", "type": "select", "options": [
                {"value": "qcow2", "label": "QCOW2（KVM/OpenStack/PVE，推荐）"},

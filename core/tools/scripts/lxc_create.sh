@@ -177,6 +177,16 @@ echo "[1/5] 创建 CT $NEWID（$NEWNAME）..."
 # 容器网卡处于未配置状态，eth0 不会有地址，概览页也就显示不出 IP。
 NET="name=eth0,bridge=$BRIDGE"
 if [ -n "$PT_IP" ]; then
+  # 静态 IP 占用检测：配置层（关机也在）为硬校验，在线探测仅作提示
+  _ipown=$(pw_owner_of "${PT_IP%/*}" || true)
+  if [ -n "$_ipown" ]; then
+    echo "[错误] 静态 IP ${PT_IP%/*} 已被占用：$_ipown"
+    echo "       请换一个空闲地址，或用「批量建机」填基址自动跳过已占用地址。"
+    exit 1
+  fi
+  if pw_ip_online "${PT_IP%/*}"; then
+    echo "[提示] ${PT_IP%/*} 当前在线但不在 PVE 配置内，可能被物理机/其它设备占用，请确认"
+  fi
   NET="$NET,ip=$PT_IP"
 else
   NET="$NET,ip=dhcp"
@@ -270,12 +280,22 @@ true
 # ===== 批量循环（子 shell 调用，单台失败不中断其余）=====
 OK=0; FAIL=0; CREATED=""; PREV=""
 IP_BASE="$PT_IP"
+_ip_off=0; _batch_ips=""
 for i in $(seq 1 "$BATCH_COUNT"); do
   if [ "$i" -eq 1 ]; then CUR="$FIRST_CTID"
   else CUR=$((PREV + 1)); while vmid_state_cluster "$CUR" >/dev/null; do CUR=$((CUR + 1)); done; fi
- # 批量模式：填了静态 IP 基址则逐台递增末段（网关/DNS 共用）；未填则保持 DHCP
+ # 批量模式：填了静态 IP 基址则逐台递增末段（网关/DNS 共用）；未填则保持 DHCP。
+ # 递增时跳过「配置层已占用 + 本批已分配」的地址，避免与既有虚机/容器抢 IP。
  if [ "$BATCH_COUNT" -gt 1 ] && [ -n "$PT_IP" ]; then
-   PT_IP=$(pw_inc_ip "$IP_BASE" $((i - 1))) || exit 1
+   while :; do
+     PT_IP=$(pw_inc_ip "$IP_BASE" "$_ip_off") || exit 1
+     if pw_ip_taken "${PT_IP%/*}" "$_batch_ips"; then
+       _ip_off=$((_ip_off + 1)); continue
+     fi
+     break
+   done
+   _batch_ips="$_batch_ips ${PT_IP%/*}"
+   _ip_off=$((_ip_off + 1))
  fi
   if [ "$BATCH_COUNT" -eq 1 ]; then THIS_NAME="$PT_NEWNAME"; else THIS_NAME=""; fi
   echo ""; echo "########## 批量进度 [$i/$BATCH_COUNT] → CTID $CUR ##########"

@@ -25,6 +25,8 @@ SOURCES = [
     "core/pve/pve_api.py",
     "core/pve/storage_provision.py",
     "core/tools/toolbox_common.py",
+    "core/tools/toolbox_dev.py",
+    "core/tools/toolbox_pro.py",
     "core/tools/tools_kernel.py",
 ]
 

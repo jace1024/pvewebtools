@@ -454,10 +454,11 @@ USER_YAML="$SNIP_DIR/cloud-${NEWID}-user.yaml"
  # （此时软件源已切换为国内镜像，安装不再走国外官方源）
  # 包管理器必须三路探测：原先写死 apt-get，openEuler / CentOS / Rocky 等 dnf/yum 系统上
  # 这步必然失败（镜像本身又通常不带 qemu-ga），表现为「勾了 QEMU 代理，PVE 里仍看不到 IP、
- # 后续依赖代理的工具（虚机内装 Docker 等）全部用不了」。
+ # 后续依赖代理的工具（一键安装Docker 等）全部用不了」。
  if [ "$PT_AGENT" = "1" ]; then
   echo "  - |"
-  echo "    if [ ! -x /usr/sbin/qemu-ga ]; then"
+  echo "    ga_bin=\$(command -v qemu-ga 2>/dev/null || ls /usr/bin/qemu-ga /usr/libexec/qemu-ga /usr/sbin/qemu-ga 2>/dev/null | head -1 || true)"
+  echo "    if [ -z \"\$ga_bin\" ]; then"
   echo "      if command -v apt-get >/dev/null 2>&1; then"
   echo "        apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=20 || true"
   echo "        apt-get install -y qemu-guest-agent || echo '[agent] 安装失败（apt）'"
@@ -469,11 +470,15 @@ USER_YAML="$SNIP_DIR/cloud-${NEWID}-user.yaml"
   echo "        echo '[agent] 未找到可用的包管理器（apt/dnf/yum），跳过安装'"
   echo "      fi"
   echo "    fi"
-  echo "    systemctl enable --now qemu-guest-agent 2>/dev/null || true"
-  echo "    if [ -x /usr/sbin/qemu-ga ]; then echo '[agent] qemu-guest-agent 已启用'; else echo '[agent] 未安装成功，PVE 将无法通过代理读取虚机信息'; fi"
+  echo "    # openEuler/RHEL 的 qemu-guest-agent 是 static 单元（无 [Install]，靠 udev/virtio-serial 端口触发），"
+  echo "    # enable 会报错且不生效；用 start 拉起即可，enable 仅作兼容尝试。"
+  echo "    systemctl start qemu-guest-agent 2>/dev/null || true"
+  echo "    systemctl enable qemu-guest-agent >/dev/null 2>&1 || true"
+  echo "    ga_bin=\$(command -v qemu-ga 2>/dev/null || ls /usr/bin/qemu-ga /usr/libexec/qemu-ga /usr/sbin/qemu-ga 2>/dev/null | head -1 || true)"
+  echo "    if [ -n \"\$ga_bin\" ]; then echo '[agent] qemu-guest-agent 已安装并启动'; else echo '[agent] 未安装成功，PVE 将无法通过代理读取虚机信息'; fi"
  fi
  # 关闭 SELinux：置 disabled（写 config 持久，下次开机彻底关；当前开机 setenforce 0 立即生效）。
- # 提前关闭，免去建完机后「虚机内装 Docker」还要挂盘自愈。
+ # 提前关闭，免去建完机后「一键安装Docker」还要挂盘自愈。
  if [ "$PT_SELINUX" = "1" ]; then
   echo "  - |"
   echo "    if [ -f /etc/selinux/config ]; then"
@@ -492,6 +497,10 @@ USER_YAML="$SNIP_DIR/cloud-${NEWID}-user.yaml"
  if [ -n "$RESIZE_GREW" ]; then
   pw_emit_root_expand_runcmd
  fi
+ # 首次启动把 DHCP 地址固定为静态（防重启漂移；未显式指定静态 IP 且勾选时注入）
+ if [ "$PT_FIXSTATIC" = "1" ] && [ -z "$PT_IP" ]; then
+  pw_emit_dhcp_to_static_runcmd
+ fi
 } > "$USER_YAML"
 # 不再回退 --ciuser/--cipassword：PVE 标准 user-data 不带 preserve_hostname，正是主机名
 # 不生效的根源；登录凭据已在上面的 users / chpasswd 中一并落定。
@@ -499,6 +508,16 @@ run "注入登录凭据失败" qm set "$NEWID" --cicustom "user=local:snippets/c
 
 # 6. 网络：静态 IP / 网关 / DNS（留空则显式 DHCP，避免镜像未收到网络配置而无法上网）
 if [ -n "$PT_IP" ]; then
+  # 静态 IP 占用检测：配置层（关机也在）为硬校验，在线探测仅作提示
+  _ipown=$(pw_owner_of "${PT_IP%/*}" || true)
+  if [ -n "$_ipown" ]; then
+    echo "[错误] 静态 IP ${PT_IP%/*} 已被占用：$_ipown"
+    echo "       请换一个空闲地址，或用「批量建机」填基址自动跳过已占用地址。"
+    exit 1
+  fi
+  if pw_ip_online "${PT_IP%/*}"; then
+    echo "[提示] ${PT_IP%/*} 当前在线但不在 PVE 配置内，可能被物理机/其它设备占用，请确认"
+  fi
   IPCFG="ip=$PT_IP"
   [ -n "$PT_GW" ] && IPCFG="$IPCFG,gw=$PT_GW"
   run "设置静态 IP 失败" qm set "$NEWID" --ipconfig0 "$IPCFG"
@@ -563,7 +582,8 @@ if [ -n "$DATA_DISK" ] && [ "$DATA_DISK" -gt 0 ] 2>/dev/null; then
  if [ -z "$SLOT" ]; then
    echo "[警告] ${BUS} 总线已无空闲槽位（上限 ${MAX_SLOT}），已跳过数据盘创建"
  else
-   if qm set "$NEWID" --"${SLOT}" "${DISK_STORE}:${DATA_DISK}" 2>&1 | sed 's/^/  /'; then
+  # 单位是 GB：必须显式带 G，裸数字交给 qm set 会被 PVE 按默认单位解析成 20M
+ if qm set "$NEWID" --"${SLOT}" "${DISK_STORE}:${DATA_DISK}G" 2>&1 | sed 's/^/  /'; then
      echo "[完成] 数据盘已挂载: ${SLOT}（${DATA_DISK}G，存储 ${DISK_STORE}）"
      echo "[提示] 数据盘在客户机内是未初始化磁盘，需进入系统后分区并格式化才能使用"
    else
@@ -619,6 +639,7 @@ true
 OK=0; FAIL=0; CREATED=""
 PREV=""
 IP_BASE="$PT_IP"
+_ip_off=0; _batch_ips=""
 for i in $(seq 1 "$BATCH_COUNT"); do
  if [ "$i" -eq 1 ]; then
    CUR="$FIRST_VMID"
@@ -627,9 +648,18 @@ for i in $(seq 1 "$BATCH_COUNT"); do
    # VMID 集群唯一：用集群级视图判定占用
    while vmid_state_cluster "$CUR" >/dev/null; do CUR=$((CUR + 1)); done
  fi
- # 批量模式：填了静态 IP 基址则逐台递增末段（网关/DNS 共用）；未填则保持 DHCP
+ # 批量模式：填了静态 IP 基址则逐台递增末段（网关/DNS 共用）；未填则保持 DHCP。
+ # 递增时跳过「配置层已占用 + 本批已分配」的地址，避免与既有虚机/容器抢 IP。
  if [ "$BATCH_COUNT" -gt 1 ] && [ -n "$PT_IP" ]; then
-   PT_IP=$(pw_inc_ip "$IP_BASE" $((i - 1))) || exit 1
+   while :; do
+     PT_IP=$(pw_inc_ip "$IP_BASE" "$_ip_off") || exit 1
+     if pw_ip_taken "${PT_IP%/*}" "$_batch_ips"; then
+       _ip_off=$((_ip_off + 1)); continue
+     fi
+     break
+   done
+   _batch_ips="$_batch_ips ${PT_IP%/*}"
+   _ip_off=$((_ip_off + 1))
  fi
  # 名称：单台用用户填的主机名；批量不指定前缀，由 deploy_one 内按镜像默认生成（含 VMID 唯一）
  if [ "$BATCH_COUNT" -eq 1 ]; then

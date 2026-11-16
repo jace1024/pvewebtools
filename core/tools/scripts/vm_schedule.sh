@@ -1,5 +1,17 @@
 
-CRON=/etc/cron.d/pvewebtools-schedule
+VMIDS_RAW="${PT_VMID:-}"
+VMIDS=$(echo "$VMIDS_RAW" | tr ',' ' ' | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' ')
+[ -z "$VMIDS" ] && { echo "[错误] 未选择任何有效虚机（VMID）"; exit 1; }
+N=$(echo "$VMIDS" | wc -w)
+echo "===== 处理 $N 台虚机：$VMIDS ====="
+IDX=0
+for VMID in $VMIDS; do
+  IDX=$((IDX+1))
+  PT_VMID="$VMID"
+  echo
+  echo "===== [$IDX/$N] 虚机 $VMID ====="
+  (
+  CRON=/etc/cron.d/pvewebtools-schedule
 SLOG=/var/log/pvewebtools-schedule.log   # 定时任务执行日志：cron 输出默认进邮件会静默丢失，落盘便于排查
 touch "$CRON"
 if [ "$PT_ACTION" = "del" ]; then
@@ -88,3 +100,6 @@ cat "$CRON"
 echo "[诊断] 文件权限: $(ls -l "$CRON" | awk '{print $1, $3, $4}')（需 root 属主且非 777，否则 cron 会忽略该文件）"
 echo "[诊断] cron 服务: 运行中，开机自启=$(systemctl is-enabled cron 2>/dev/null || echo 未知)"
 echo "[提示] 到点执行记录（含退出码）会落在 $SLOG；若到点后该文件无新增行，用 journalctl -u cron 看调度器日志"
+  )
+done
+echo "===== 全部 $N 台虚机处理完成 ====="

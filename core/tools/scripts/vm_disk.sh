@@ -11,6 +11,8 @@ if [ "$PT_ACTION" = "add" ]; then
  [ -n "$SIZE" ] || { echo "[错误] 请填写磁盘容量"; exit 1; }
  SIZE=$(echo "$SIZE" | tr 'a-z' 'A-Z')
  echo "$SIZE" | grep -qE '^[0-9]+[GTKM]?$' || { echo "[错误] 容量格式不正确（数字+可选单位 G/T/M/K，如 32G）"; exit 1; }
+ # 纯数字默认按 GB：裸数字交给 qm set 会被 PVE 按默认单位解析成 20M
+ if echo "$SIZE" | grep -qE '^[0-9]+$'; then SIZE="${SIZE}G"; fi
  pvesm status 2>/dev/null | awk '{print $1}' | grep -qx "$STORAGE" || { echo "[错误] 存储 $STORAGE 不存在"; exit 1; }
  MAX=30
  case "$BUS" in

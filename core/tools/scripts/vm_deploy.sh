@@ -529,7 +529,7 @@ if qm config "$NEWID" 2>/dev/null | grep -qE 'ide2:.*cloudinit|scsi1:.*cloudinit
        echo "  - systemctl restart qemu-guest-agent || true"
        fi
        # 关闭 SELinux：置 disabled（写 config 持久，下次开机彻底关；当前开机 setenforce 0 立即生效）。
-       # 提前关闭，免去建完机后「虚机内装 Docker」还要挂盘自愈。
+       # 提前关闭，免去建完机后「一键安装Docker」还要挂盘自愈。
        if [ "$PT_SELINUX" = "1" ] && [ "$IS_WIN" != "1" ]; then
        echo "  - |"
        echo "    if [ -f /etc/selinux/config ]; then"
@@ -547,12 +547,26 @@ if qm config "$NEWID" 2>/dev/null | grep -qE 'ide2:.*cloudinit|scsi1:.*cloudinit
        if [ -n "$RESIZE_GREW" ] && [ "$IS_WIN" != "1" ]; then
        pw_emit_root_expand_runcmd
        fi
+       # 首次启动把 DHCP 地址固定为静态（防重启漂移；未显式指定静态 IP 且勾选时注入）
+       if [ "$PT_FIXSTATIC" = "1" ] && [ -z "$PT_IP" ] && [ "$IS_WIN" != "1" ]; then
+       pw_emit_dhcp_to_static_runcmd
+       fi
        } > "$USER_YAML"
    run "注入 Cloud-Init user-data 失败" qm set "$NEWID" --cicustom "user=local:snippets/cloud-${NEWID}-user.yaml"
  fi
  if [ -n "$PT_IP" ]; then
-   IPCCFG="ip=$PT_IP"
-   [ -n "$PT_GW" ] && IPCCFG="$IPCFG,gw=$PT_GW"
+   # 静态 IP 占用检测：配置层（关机也在）为硬校验，在线探测仅作提示
+   _ipown=$(pw_owner_of "${PT_IP%/*}" || true)
+   if [ -n "$_ipown" ]; then
+     echo "[错误] 静态 IP ${PT_IP%/*} 已被占用：$_ipown"
+     echo "       请换一个空闲地址，或用「批量建机」填基址自动跳过已占用地址。"
+     exit 1
+   fi
+   if pw_ip_online "${PT_IP%/*}"; then
+     echo "[提示] ${PT_IP%/*} 当前在线但不在 PVE 配置内，可能被物理机/其它设备占用，请确认"
+   fi
+   IPCFG="ip=$PT_IP"
+   [ -n "$PT_GW" ] && IPCFG="$IPCFG,gw=$PT_GW"
    qm set "$NEWID" --ipconfig0 "$IPCFG"
  else
    qm set "$NEWID" --ipconfig0 ip=dhcp
@@ -606,7 +620,8 @@ if [ -n "$DATA_DISK" ] && [ "$DATA_DISK" -gt 0 ] 2>/dev/null && qm status "$NEWI
  if [ -z "$SLOT" ]; then
    echo "[警告] ${BUS} 总线已无空闲槽位（上限 ${MAX_SLOT}），已跳过数据盘创建"
  else
-   if qm set "$NEWID" --"${SLOT}" "${DISK_STORE}:${DATA_DISK}" 2>&1 | sed 's/^/  /'; then
+   # 单位是 GB：必须显式带 G，裸数字交给 qm set 会被 PVE 按默认单位解析成 20M
+  if qm set "$NEWID" --"${SLOT}" "${DISK_STORE}:${DATA_DISK}G" 2>&1 | sed 's/^/  /'; then
      echo "[完成] 数据盘已挂载: ${SLOT}（${DATA_DISK}G，存储 ${DISK_STORE}）"
      echo "[提示] 数据盘在客户机内是未初始化磁盘，需进入系统后分区并格式化才能使用"
    else
@@ -666,11 +681,24 @@ if [ "$PT_START" = "1" ]; then
        *)
          if qm config "$NEWID" 2>/dev/null | grep -q '^agent:[[:space:]]*enabled=1'; then
            pw_guest_grow_root "$NEWID" || true
+         elif echo "$SRCNAME" | grep -qi 'openwrt'; then
+           echo "[扩根] OpenWrt 模板未启用 QEMU 代理，无法自动扩根。"
+           echo "       模板内预装 qemu-guest-agent 并勾选「启用 QEMU 代理」后重建；或手动执行："
+           echo "       parted /dev/sda resizepart <分区号> 100% && resize2fs /dev/sdaN（f2fs 用 resize.f2fs）"
          else
            echo "[扩根] 未启用 QEMU 代理，无法自动扩分区；可进系统执行 growpart + resize2fs（xfs 用 xfs_growfs）"
          fi
          ;;
      esac
+   fi
+   # 首启动固定静态 IP 的 QEMU 代理兜底：模板预初始化时 cloud-init 可能不重跑、runcmd 不执行，
+   # 故等代理就绪后在虚机内执行同样的 DHCP→静态转换（与扩根兜底同思路，best-effort）。
+   if [ "$PT_FIXSTATIC" = "1" ] && [ -z "$PT_IP" ] && [ "$IS_WIN" != "1" ]; then
+     if qm config "$NEWID" 2>/dev/null | grep -q '^agent:[[:space:]]*enabled=1'; then
+       pw_guest_fix_static "$NEWID" || true
+     else
+       echo "[静态IP] 未启用 QEMU 代理，无法自动固定；可在系统内手动设静态 IP（或勾选 agent 后重跑）"
+     fi
    fi
  fi
 fi
@@ -704,6 +732,7 @@ pw_quorum_precheck
 OK=0; FAIL=0; CREATED=""
 PREV=""
 IP_BASE="$PT_IP"
+_ip_off=0; _batch_ips=""
 for i in $(seq 1 "$BATCH_COUNT"); do
  if [ "$i" -eq 1 ]; then
    CUR="$FIRST_VMID"
@@ -712,9 +741,18 @@ for i in $(seq 1 "$BATCH_COUNT"); do
    # VMID 集群唯一：用集群级视图判定占用
    while vmid_state_cluster "$CUR" >/dev/null; do CUR=$((CUR + 1)); done
  fi
- # 批量模式：填了静态 IP 基址则逐台递增末段（网关/DNS 共用）；未填则保持 DHCP
+ # 批量模式：填了静态 IP 基址则逐台递增末段（网关/DNS 共用）；未填则保持 DHCP。
+ # 递增时跳过「配置层已占用 + 本批已分配」的地址，避免与既有虚机/容器抢 IP。
  if [ "$BATCH_COUNT" -gt 1 ] && [ -n "$PT_IP" ]; then
-   PT_IP=$(pw_inc_ip "$IP_BASE" $((i - 1))) || exit 1
+   while :; do
+     PT_IP=$(pw_inc_ip "$IP_BASE" "$_ip_off") || exit 1
+     if pw_ip_taken "${PT_IP%/*}" "$_batch_ips"; then
+       _ip_off=$((_ip_off + 1)); continue
+     fi
+     break
+   done
+   _batch_ips="$_batch_ips ${PT_IP%/*}"
+   _ip_off=$((_ip_off + 1))
  fi
  # 名称：单台用用户填的主机名；批量不指定前缀，由 deploy_one 内按模板默认生成（含 VMID 唯一）
  if [ "$BATCH_COUNT" -eq 1 ]; then

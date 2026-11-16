@@ -1,5 +1,17 @@
 
-# ============ 磁盘导出（转换格式 + 落盘，供跨云迁移下载） ============
+VMIDS_RAW="${PT_VMID:-}"
+VMIDS=$(echo "$VMIDS_RAW" | tr ',' ' ' | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' ')
+[ -z "$VMIDS" ] && { echo "[错误] 未选择任何有效虚机（VMID）"; exit 1; }
+N=$(echo "$VMIDS" | wc -w)
+echo "===== 处理 $N 台虚机：$VMIDS ====="
+IDX=0
+for VMID in $VMIDS; do
+  IDX=$((IDX+1))
+  PT_VMID="$VMID"
+  echo
+  echo "===== [$IDX/$N] 虚机 $VMID ====="
+  (
+  # ============ 磁盘导出（转换格式 + 落盘，供跨云迁移下载） ============
 [ -n "$PT_VMID" ] || { echo "[错误] 未选择虚拟机"; exit 1; }
 [ -n "$PT_TARGET" ] || { echo "[错误] 未选择目标格式"; exit 1; }
 [ -n "$PT_STORAGE" ] || { echo "[错误] 未选择导出存储"; exit 1; }
@@ -61,3 +73,6 @@ EOF
 
 [ "$EXPORTED_COUNT" -gt 0 ] && echo "[完成] 已导出 $EXPORTED_COUNT 个磁盘到 $PT_STORAGE" || echo "[提示] 未导出任何磁盘"
 exit 0
+  )
+done
+echo "===== 全部 $N 台虚机处理完成 ====="

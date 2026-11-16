@@ -1,5 +1,17 @@
 
-VMID="$PT_VMID"
+VMIDS_RAW="${PT_VMID:-}"
+VMIDS=$(echo "$VMIDS_RAW" | tr ',' ' ' | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' ')
+[ -z "$VMIDS" ] && { echo "[错误] 未选择任何有效虚机（VMID）"; exit 1; }
+N=$(echo "$VMIDS" | wc -w)
+echo "===== 处理 $N 台虚机：$VMIDS ====="
+IDX=0
+for VMID in $VMIDS; do
+  IDX=$((IDX+1))
+  PT_VMID="$VMID"
+  echo
+  echo "===== [$IDX/$N] 虚机 $VMID ====="
+  (
+  VMID="$PT_VMID"
 qm status "$VMID" >/dev/null 2>&1 || { echo "[错误] VM $VMID 不存在"; exit 1; }
 MODE="$PT_ACTION"
 # 快捷项与自定义参数叠加（前者在前），并去重规整
@@ -86,3 +98,6 @@ else
   echo "       若原因是虚机未装 QEMU 代理：在 VM「选项」开启 agent=1，并在虚机内安装启用 qemu-guest-agent 后即可自动完成"
   exit 1
 fi
+  )
+done
+echo "===== 全部 $N 台虚机处理完成 ====="
