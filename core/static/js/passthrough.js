@@ -184,7 +184,7 @@ function highlightInline(esc) {
   return highlightPci(highlightKarg(esc));
 }
 
-// 结果卡片行：脚本用「▸」标记“完成后输出”的信息（如 vGPU 授权服务器部署结果），
+// 结果卡片行：脚本用「▸」标记“完成后输出”的信息（如部署结果、取回的令牌/地址），
 // 逐行渲染成 .log-card 信息条（样式见 style.css），四种形态：
 //   ▸▸ 小节标题 | ▸ $ 命令（附「复制」按钮） | ▸ 键: 值（键值对齐） | ▸ 其它说明
 function renderLogCard(trimmed) {
@@ -570,14 +570,14 @@ function finishJob(snap) {
   $("jobStatus").textContent = ok ? "✓ 执行成功" : `✗ 执行失败 (code ${snap.returncode ?? "?"})`;
   $("jobStatus").className = "job-status " + (ok ? "success" : "failed");
   setRunBtnLoading(false);
-  // 高危：一次确认只授权一次执行（AWS 删桶同款），任务结束后清空确认词，让「执行」重新锁定
+  // 高危：一次确认只放行一次执行（AWS 删桶同款），任务结束后清空确认词，让「执行」重新锁定
   if (currentTool && effectiveRisk(currentTool) === "high") {
     const ci = $("confirmInput");
     if (ci) { ci.value = ""; syncConfirmState(); }
   }
   // 记录「本次弹窗会话里该工具已成功跑过」：确认词刚被上面清空，但脚本常以「请点弹窗内『重启生效』
   // 按钮」收尾，该按钮据此仍保持可点（见 syncRunBtnGate 的 GATE_REPEAT_OK_BTNS）。
-  // 失败则清掉，不把这次授权留在一次没跑成的执行上。
+  // 失败则清掉，不把这次确认留在一次没跑成的执行上。
   lastOkToolId = (ok && currentTool) ? currentTool.id : null;
   syncRunBtnGate();   // 任务结束后按确认词状态重新决定按钮是否可点
   $("btnKillJob").classList.add("hidden");

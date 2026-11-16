@@ -108,8 +108,6 @@ async function loadEditionBadge() {
   try {
     const data = await api("/edition");
     showEditionBadge(data.version || "");
-    // 同一份结果顺带决定「+ 加入节点」入口（见 settings.js applyJoinEntryState）
-    if (typeof setEditionInfo === "function") setEditionInfo(data);
   } catch (e) {
     // 获取失败不影响主流程，胶囊保持隐藏即可
   }

@@ -13,13 +13,13 @@ class RoutingMixin:
 
     # ---- HTTP 方法入口：登录门禁 + 写闸口 + 统一异常映射（具体分发在 _handle_*）----
 
-    # 登录门禁的公开豁免端点：登录态相关、版本胶囊、授权管理（熔断后仍须能上传授权码解熔断）。
+    # 登录门禁的公开豁免端点：登录态相关与版本号。
     _AUTH_PUBLIC = ("login", "logout", "auth", "edition")
 
     def _require_auth(self, parts):
         """登录门禁：未通过校验的 /api/* 请求一律 401。
 
-        豁免：--no-auth 破窗通道、登录/注销/状态/版本/授权管理、以及路径无法解析（交给后续 404）。
+        豁免：--no-auth 破窗通道、登录/注销/状态/版本、以及路径无法解析（交给后续 404）。
         其余请求必须携带合法会话 Cookie。返回 False 时已回写 401，调用方应直接 return。
         """
         if auth_session.disabled():

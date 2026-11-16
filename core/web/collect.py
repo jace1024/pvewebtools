@@ -8,9 +8,9 @@ python3 执行（见 server.py），使「切换执行节点」时，即便远�
 硬件列表。
 
 模块内的函数名与 server.py 中同名函数一一对应；此处只保留「远端执行」所需的纯采集
-实现（即 server.py 里 node!=None 分支要跑的逻辑），不含 _run_func_on_node 自身递归、
-也不含授权/工具执行等无关逻辑。存储/备份类改用 pvesh CLI（与 backend 内部逻辑一致），
-避免引入 proxmoxer 依赖。
+实现（即 server.py 里 node!=None 分支要跑的逻辑），不含 _run_func_on_node 自身递归与
+工具执行等无关逻辑。存储/备份类改用 pvesh CLI（与 backend 内部逻辑一致），避免引入
+proxmoxer 依赖。
 """
 
 import json

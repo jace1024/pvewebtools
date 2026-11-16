@@ -68,7 +68,7 @@ function syncConfirmState() {
 // 而不是点了才报错。注：强制结束（中断动作）不参与闸门——任务卡住时必须能中止，锁住反而更危险。
 const GATED_ACTION_BTNS = ["btnRunTool", "btnRebootNode", "btnRebootGuest"];
 // 额外解锁通道（仅「重启生效」）：该工具本次已成功执行过 → 即使确认词已被清空也解锁。
-// 理由是确认词刻意「一次授权只执行一次」（执行结束即清空），而重启恰好是这次执行的收尾——
+// 理由是确认词刻意「一次确认只放行一次」（执行结束即清空），而重启恰好是这次执行的收尾——
 // 脚本会明确提示「请点弹窗内『重启生效』按钮」，若这时按钮是灰的，用户只能把工具名重输一遍。
 // 注意只放宽到「已跑成功」，且点击后仍有独立的手输「重启节点」确认，重启整机的门槛不降。
 const GATE_REPEAT_OK_BTNS = ["btnRebootNode"];
@@ -80,7 +80,7 @@ function syncRunBtnGate() {
   const risky = !!(currentTool && row && !row.classList.contains("hidden")
     && effectiveRisk(currentTool) === "high");
   const ok = risky && normConfirm($("confirmInput").value) === normConfirm(currentTool.name);
-  // 该工具本次已成功跑过：确认词虽已清空，也认作已授权（与 ok 互斥，便于阅读）
+  // 该工具本次已成功跑过：确认词虽已清空，也认作已放行（与 ok 互斥，便于阅读）
   const ranOk = risky && !ok && !!currentTool && lastOkToolId === currentTool.id;
   const runBtn = $("btnRunTool");
   const runBusy = !!runBtn && runBtn.dataset.busy === "1";   // 有任务在跑：一并锁住其它动作按钮

@@ -51,7 +51,7 @@ def test_match_requires_same_segment_count():
 
 
 def test_match_is_case_sensitive():
-    assert match("license/status", ["License", "status"]) is None
+    assert match("demo/status", ["Demo", "status"]) is None
 
 
 @pytest.mark.parametrize("bad", ["", "a//b", "/a", "a/", "<a", "a>", "<>", "a<b", "<a>b>"])
@@ -64,9 +64,9 @@ def test_bad_template_rejected(bad):
 
 def test_table_rejects_duplicate_route():
     exact = Table()
-    exact.add("license/status", "_a")
+    exact.add("demo/status", "_a")
     with pytest.raises(ValueError):
-        exact.add("license/status", "_b")
+        exact.add("demo/status", "_b")
 
     pattern = Table()
     pattern.add("jobs/<id>/kill", "_a")
@@ -76,10 +76,10 @@ def test_table_rejects_duplicate_route():
 
 def test_merge_rejects_duplicate_across_modules():
     class ModA:
-        HANDLERS = {"get": {"license/status": "_x"}}
+        HANDLERS = {"get": {"demo/status": "_x"}}
 
     class ModB:
-        HANDLERS = {"get": {"license/status": "_y"}}
+        HANDLERS = {"get": {"demo/status": "_y"}}
 
     with pytest.raises(ValueError):
         dispatch.merge(ModA, ModB)
@@ -87,23 +87,23 @@ def test_merge_rejects_duplicate_across_modules():
 
 def test_table_rejects_bad_target():
     with pytest.raises(TypeError):
-        Table().add("license/status", 123)
+        Table().add("demo/status", 123)
     with pytest.raises(ValueError):
-        Table().add("license/status", "")
+        Table().add("demo/status", "")
 
 
 # ---- 查表分发 ----
 
 def _demo_tables():
     table = Table()
-    table.add("license/status", "_status")
+    table.add("demo/status", "_status")
     table.add("jobs/<id>/kill", "_kill")
     return {"post": table}
 
 
 def test_dispatch_hit_str_target():
     handler = FakeHandler()
-    assert dispatch.dispatch(handler, "post", ["license", "status"], _demo_tables()) is True
+    assert dispatch.dispatch(handler, "post", ["demo", "status"], _demo_tables()) is True
     assert handler.calls == [("_status", (), {})]
 
 
@@ -123,7 +123,7 @@ def test_dispatch_hit_callable_target_captures_params():
 def test_dispatch_miss_returns_false():
     handler = FakeHandler()
     assert dispatch.dispatch(handler, "post", ["upgrade", "upload"], _demo_tables()) is False
-    assert dispatch.dispatch(handler, "get", ["license", "status"], _demo_tables()) is False   # 无该方法表
+    assert dispatch.dispatch(handler, "get", ["demo", "status"], _demo_tables()) is False   # 无该方法表
     assert handler.calls == []
 
 
@@ -392,9 +392,9 @@ def test_route_targets_only_touch_existing_handler_attributes():
     """路由目标只允许访问 ``ApiHandler`` 上真实存在的属性。
 
     字符串目标由 ``test_registered_method_targets_exist_on_api_handler`` 用反射校验；域模块里
-    **函数**（转发函数、以及像 license 那样把实现直接放进域模块的函数）中的 ``handler._xxx``
+    **函数**（转发函数、以及像 auth 那样把实现直接放进域模块的函数）中的 ``handler._xxx``
     则是另一层间接，拼错只会在请求打过来时 500。这里用 AST 静态提取，不真的调用它们
-    ——实现函数会读 body、碰 licensing 等真实资源，调用会带来副作用。
+    ——实现函数会读 body、碰真实资源，调用会带来副作用。
     """
     import ast
     import inspect

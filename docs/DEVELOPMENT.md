@@ -93,8 +93,8 @@ HANDLERS = {
 
 ### 版本信息（`core/version.py`）
 
-`version_info()` 返回 `{version, edition, build, built_at, source}`，供 `/api/edition` 与设置弹窗的版本胶囊使用。
-源码运行时读取包内 `VERSION` 文件，并用 `git log -1` 作为构建参考。
+`version_info()` 返回 `{version, source}`，供 `/api/edition` 与设置弹窗的版本胶囊使用。
+版本号读取包内 `VERSION` 文件，文件缺失时回退为「未知」。
 
 ---
 
@@ -161,8 +161,7 @@ sudo ./install.sh [端口] [安装目录]   # 默认 8899 / /etc/pvewebtools
 `install.sh` 同步程序目录后调用 `scripts/deploy_source.sh` 注册 systemd 服务
 （`WorkingDirectory` = 安装目录，`ExecStart = python3 -m core.web.server <端口> [--tls]`）。
 
-> **升级 = 覆盖程序目录 + `systemctl restart pvewebtools`**。没有产品内自助升级，
-> 升级流程与授权无关（也没有授权）。
+> **升级 = 覆盖程序目录 + `systemctl restart pvewebtools`**（没有产品内自助升级）。
 
 ---
 

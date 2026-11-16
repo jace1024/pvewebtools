@@ -238,22 +238,6 @@ _MS_RESERVED_TYPE = "e3c9e316-0b5c-4db8-817d-f92df00215ae"
 _WIN_RECOVERY_TYPE = "de94bba4-06d1-4d40-a16a-bfd50179d6ac"
 
 
-def edition_caps():
-    """版本能力描述（供 /api/edition 与「加入节点」入口判断共用，避免前后端口径漂移）。
-
-    - edition：工具集档位（lite，用于版本胶囊展示）
-    - runtime：同 edition（保留字段以兼容前端）
-    - max_nodes / enforced：0 / False —— 不限制机器数
-    - can_join：True —— 允许创建 / 加入集群
-    """
-    return {
-        "edition": str(getattr(toolbox, "EDITION", "") or ""),
-        "runtime": str(getattr(toolbox, "EDITION", "") or ""),
-        "max_nodes": 0,
-        "enforced": False,
-        "can_join": True,
-    }
-
 
 def _cloud_image_dir():
     """云镜像/磁盘上传主落盘目录：pvewebtools 共享存储根下的 cloud-images/
@@ -480,7 +464,7 @@ def lxc_batch_swap(mirror, security):
     """对集群每个节点（含本机）提交 change_sources 任务，实现「一键批量换源」。
 
     复用 change_sources 工具的脚本与 env 展开逻辑（镜像/安全源地址一致），
-    逐节点提交任务（本机本地执行，其余节点走免密 SSH）；远程节点走授权闸口。
+    逐节点提交任务（本机本地执行，其余节点走免密 SSH）。
     返回 {jobs:[{node, ok, job_id?/error}], total}。"""
     if mirror not in ("ustc", "tuna", "official", "auto"):
         raise toolbox.ToolError(f"非法镜像源: {mirror}")
@@ -3276,15 +3260,12 @@ class HandlerMixin:
         return self._json(backend.quorum_status())
 
     def _handle_edition(self):
-        """GET /api/edition  版本号 + 工具集档位 + 版本能力。
+        """GET /api/edition  版本号 + 工具集档位。
 
-        轻量接口：供首屏胶囊秒显（不触发 toolbox/jobs 重型路径）。edition / runtime 是
-        工具集档位（toolbox.EDITION）；max_nodes / can_join / enforced 见 edition_caps()。
+        轻量接口：供首屏版本胶囊秒显（不触发 toolbox/jobs 重型路径）。
         """
-        _vi = version_info()
-        data = edition_caps()
-        data.update({"version": _vi["version"], "source": _vi["source"]})
-        return self._json(data)
+        return self._json({"version": version_info()["version"],
+                           "edition": str(getattr(toolbox, "EDITION", "") or "")})
 
     def _handle_schedules(self):
         """GET /api/schedules  定时开关机任务列表；不带 ?node= 时查本机。"""
