@@ -1,4 +1,4 @@
-# PVE WebTools（开源版）
+# PVE WebTools
 
 基于 Python **标准库**开发的 Proxmox VE 图形化 Web 管理工具，零第三方运行时依赖，
 直接使用 PVE 自带的系统 Python（Debian 12 bookworm / Debian 13 trixie）即可运行。
