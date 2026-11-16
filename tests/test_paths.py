@@ -1,4 +1,4 @@
-"""M1.3 纯逻辑：core.paths 目录解析（源码形态，不依赖打包环境）。"""
+"""纯逻辑：core.paths 目录解析（源码形态，不依赖打包环境）。"""
 
 from pathlib import Path
 

@@ -1,4 +1,4 @@
-"""M1.3 纯逻辑：响应出口的敏感信息净化（server._sanitize_text / _sanitize_out）。
+"""纯逻辑：响应出口的敏感信息净化（server._sanitize_text / _sanitize_out）。
 
 这两处是所有 HTTP JSON / SSE 出口的咽喉，逻辑出错会把内部实现细节泄露给前端，
 因此优先纳入单测。

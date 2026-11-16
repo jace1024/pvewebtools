@@ -211,8 +211,8 @@ def _iommu_group_size(addr):
 def _collect_source():
     """读取自包含采集脚本 collect.py 的源码，供经 SSH 喂给远端节点执行。
 
-    源码部署时 collect.py 与本文件同目录；编译二进制部署时，build.sh 已把它作为数据文件
-    打进资源目录根（见 build.sh 的 --include-data-files），运行时从 RESOURCE_DIR 读取。
+    源码部署时 collect.py 与本文件同目录；打包分发时它被放进资源目录根，运行时从
+    RESOURCE_DIR 读取。
     该脚本零第三方依赖，只用到标准库 + 节点自带 CLI（lspci/lsusb/ip/lsblk/pvesh 等），
     因此远端节点不需要安装本工具或 proxmoxer 也能返回真实硬件列表。
     """

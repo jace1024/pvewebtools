@@ -1,7 +1,7 @@
-"""本机与集群节点识别辅助（M2/T2.6 深化：从 server.py 抽出的跨域共享层）。
+"""本机与集群节点识别辅助（跨域共享层）。
 
 这些函数被多个域模块（cluster / node / transfer / toolbox 等）共用，且不依赖 HTTP 层，
-所以先落在共享模块里——否则域模块要用它们就得反向 import server，形成循环导入。
+所以独立成共享模块，避免域模块反向 import server 形成循环导入。
 """
 
 import re
@@ -25,7 +25,7 @@ def _shared_storages():
     两类：
     - PVE 标了 shared=1 的存储（NFS / Ceph 等网络存储）；
     - 项目工作区存储 pvewebtools：集群内各节点由本工具挂同一 NFS 导出（见 storage_provision /
-      节点管理页的「修复 NFS 客户端」），同路径即同一份数据 —— 它在 PVE 里注册成 dir 型且不带
+      节点管理页的「修复共享存储」），同路径即同一份数据 —— 它在 PVE 里注册成 dir 型且不带
       shared，只按 shared 判会把「跨节点管理共享存储内容」这条主线退化成只读。
     local / local-lvm / local-zfs 等节点独占存储不在其中：它们 id 各节点同名，但内容各节点独立。"""
     out = {str(storage_provision.WORKSPACE_SID)}

@@ -8,24 +8,6 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ff8c1a' d='M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <style>
-  /* 授权状态横幅：出现未授权机器时提示工具箱停用 */
-  .license-banner {
-    margin: 12px 0; padding: 12px 16px; border-radius: 10px; font-size: 14px;
-    background: rgba(255, 140, 26, 0.12); border: 1px solid rgba(255, 140, 26, 0.45);
-    line-height: 1.6;
-  }
-  .license-banner b { color: #ff8c1a; }
-  /* 系统升级：上传进度条 / 校验清单 */
-  .upgrade-bar { height: 8px; margin-top: 10px; border-radius: 4px; overflow: hidden;
-    background: var(--panel); border: 1px solid var(--border); }
-  .upgrade-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
-  /* 文件框 / 上传按钮 / 进度文案同排一行（窄屏自动换行），省掉一层高度 */
-  .upgrade-upload-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .upgrade-check { margin-top: 12px; font-size: 13px; line-height: 1.95; }
-  .upgrade-check .ok { color: #35c46a; }
-  .upgrade-check .bad { color: #ff5c5c; }
-  .upgrade-check .warn { color: #ff8c1a; }
-  .upgrade-ver { font-size: 13px; line-height: 1.9; }
   /* 登录门禁浮层：未登录时全屏遮罩，主界面初始化前先校验会话 */
   #loginMask {
     position: fixed; inset: 0; z-index: 1000;
@@ -199,11 +181,10 @@
     <span id="sessionInfo" class="muted hidden" title="当前登录用户与会话到期时间"></span>
     <span id="refreshTime" class="muted"></span>
     <button id="btnRefresh" class="btn"><span class="refresh-ico"><svg class="ico"><use href="#ico-refresh"></use></svg></span>刷新</button>
-    <button id="btnSettings" class="btn" onclick="openSettings()" title="系统设置（系统升级 / 帮助手册 / 版本）"><svg class="ico"><use href="#ico-gear"></use></svg>设置</button>
+    <button id="btnSettings" class="btn" onclick="openSettings()" title="系统设置（帮助手册 / 版本）"><svg class="ico"><use href="#ico-gear"></use></svg>设置</button>
     <button id="btnLogout" class="btn hidden" title="退出登录"><svg class="ico"><use href="#ico-power"></use></svg>退出</button>
   </div>
 </header>
-
 
 
 <main id="viewOverview">
@@ -247,7 +228,7 @@
           <tr>
             <th class="cb-col"><input type="checkbox" id="selectAllGuests" title="全选当前页" onchange="toggleSelectAll(this)"></th>
             <th>状态</th><th>VMID</th><th>名称</th><th>类型</th><th>节点</th>
-            <th>CPU</th><th>内存</th><th>IP 地址</th><th>运行时长</th><th>操作</th><th>开机自启</th><th>备注</th>
+            <th>CPU</th><th>内存</th><th>IP 地址</th><th>运行时长</th><th>操作</th><th class="onboot-col">开机自启</th><th>备注</th>
           </tr>
         </thead>
         <tbody id="guestBody"></tbody>
@@ -262,13 +243,15 @@
 <main id="viewNode" class="hidden">
   <section>
     <div class="section-head">
-      <h2>节点列表 <span id="nodeMgmtHint" class="muted u-text13" >（集群节点概览；可加入集群、重启节点、重跑共享存储接入、临时取得仲裁）</span></h2>
+      <h2>节点列表 <span id="nodeMgmtHint" class="muted u-text13" >（集群节点概览；可加入集群、逐节点操作、一键修复共享存储、临时取得仲裁）</span></h2>
       <div class="filters">
         <button class="btn btn-sm" onclick="loadNodeMgmt(true)">刷新</button>
+        <button class="btn btn-sm" id="btnFixStorageAll" onclick="fixAllNodeStorage()">修复共享存储</button>
         <button class="btn btn-sm start" onclick="openJoinClusterModal()">+ 加入节点</button>
       </div>
     </div>
     <div id="quorumBar" class="quorum-bar hidden"></div>
+    <div id="nodeActionResult" class="quorum-bar hidden"></div>
     <div id="nodeMgmtCards" class="cards"></div>
     <div id="nodeMgmtEmpty" class="empty-state hidden"><div class="empty-icon"><svg class="ico"><use href="#ico-server"></use></svg></div><div>暂无节点数据</div></div>
   </section>
@@ -311,8 +294,6 @@
               <option value="cloud" title="接受 .qcow2 / .raw / .img 等；含 cloud-init 的云镜像，落 cloud-images，供云镜像建机">云镜像（含 cloud-init）</option>
               <option value="disk" title="接受 .qcow2 / .raw / .img 等；普通磁盘镜像（无 cloud-init，如 openEuler），落 disk-images，供虚机磁盘导入/制作云镜像原料">磁盘镜像（无 cloud-init）</option>
               <option value="vbios" title="接受 .rom / .bin">vBIOS ROM（显卡直通）</option>
-              <!-- vGPU 物料只有 Pro 的「高级玩法」工具会消费，Lite 版隐藏（data-edition 由 JS 按运行档位显隐） -->
-              <option value="vgpu" data-edition="pro" class="hidden" title="接受 .run / .patch / .so；NVIDIA vGPU 宿主机物料：驱动 NVIDIA-Linux-x86_64-&lt;版本&gt;-vgpu-kvm.run、消费级卡解锁补丁 &lt;版本&gt;.patch（vgpu-proxmox）、解锁库 libvgpu_unlock_rs.so（vgpu_unlock-rs），落 vgpu-drivers，供「N卡 vGPU 宿主机准备」使用（.patch / .so 供开发版「vGPU 消费级卡解锁」使用）">vGPU 宿主机物料（驱动/解锁）</option>
             </select>
           </div>
           <div class="tc-row" id="tcUploadStorageRow" style="display:none">
@@ -658,59 +639,22 @@
 </div>
 
 
-<!-- 系统设置弹窗：分区切换（系统升级 / 帮助手册），后续设置项按分区追加。 -->
+<!-- 系统设置弹窗：分区切换（帮助手册），后续设置项按分区追加。 -->
 <div id="settingsModal" class="modal-mask hidden">
   <div class="modal modal-wide">
     <div class="modal-head">
-      <!-- 版本胶囊（LITE / PRO / 源码版 + 版本号）：初始隐藏，由 JS 拉到 /api/edition 后填内容。
- 从原顶栏品牌位移到此处 —— 三个分区都看得见，且不占顶栏常驻空间 -->
+      <!-- 版本胶囊（开源版 + 版本号）：初始隐藏，由 JS 拉到 /api/edition 后填内容 -->
       <h3>系统设置<span id="editionBadge" class="edition-badge" style="display:none"></span></h3>
       <button id="settingsClose" class="btn-icon"><svg class="ico"><use href="#ico-close"></use></svg></button>
     </div>
     <div class="modal-body">
       <div class="settings-tabs">
         <button class="stab active" data-pane="help">帮助手册</button>
-        <button class="stab" data-pane="upgrade">系统升级</button>
       </div>
 
 
-      <!-- 分区二：系统升级（编译版自助升级：上传编译包 → 安装前校验 → 升级/回滚）
- 升级由独立的 systemd 任务执行，服务会短暂重启；本分区内容由 app.js 的
- loadUpgrade/renderUpgrade* 函数渲染 -->
-      <section id="viewUpgrade" class="settings-pane hidden" data-pane="upgrade">
-        <div class="section-head">
-          <h2>系统升级 <span class="license-badge" id="upgradeBadge"></span></h2>
-          <div class="filters">
-            <button class="btn btn-sm" onclick="loadUpgrade()">刷新</button>
-          </div>
-        </div>
-        <div id="upgradeSummary" class="upgrade-ver"></div>
-
-        <section class="u-mt18">
-          <h2>上传升级包</h2>
-          <p class="muted u-text13-mb10" >
-            上传只做<b>校验体检</b>，不会替换程序；可先用它验证发行包与本机是否兼容。
-          </p>
-          <!-- 文件框 / 上传按钮 / 进度文案同排一行，省掉一层高度（「升级不影响授权」见帮助手册升级章节） -->
-          <div class="upgrade-upload-row">
-            <input type="file" id="upgradeFile" accept=".gz,.tgz">
-            <button class="btn" id="upgradeUploadBtn">上传并校验</button>
-            <span class="muted u-text13" id="upgradeUploadMsg" ></span>
-          </div>
-          <div class="upgrade-bar hidden" id="upgradeUploadBar"><i id="upgradeUploadFill"></i></div>
-          <div id="upgradeInspect"></div>
-        </section>
-
-        <section class="u-mt18">
-          <h2>已上传的升级包</h2>
-          <div id="upgradePackages"></div>
-        </section>
-        <!-- 升级日志块已移除：日志落盘 /etc/pvewebtools/upgrade.log，需要时用 tail 查看
- （后端 /api/upgrade/log 仍保留，供 curl / 排障取尾部；不再占界面） -->
-      </section>
-
-      <!-- 分区三：帮助手册（静态文案，按章节折叠；描述与 README 保持一致） -->
-      <section id="viewHelp" class="settings-pane hidden" data-pane="help">
+      <!-- 帮助手册（静态文案，按章节折叠；描述与 README 保持一致） -->
+      <section id="viewHelp" class="settings-pane" data-pane="help">
         <div class="section-head">
           <h2>帮助手册</h2>
           <span class="muted u-text13" >PVE WebTools 使用指引</span>
@@ -722,7 +666,7 @@
             <li>浏览器访问 <span class="mono">https://&lt;PVE_IP&gt;:8899</span>（默认端口 8899）；默认账号 <span class="mono">pvewebtools</span>（只输 pvewebtools 等价 pvewebtools@pve）。</li>
             <li>顶部五个页签：<b>概览 / 节点管理 / 工具箱 / 传输中心 / 执行日志</b>。</li>
             <li>概览每 10 秒自动刷新；右上角「刷新」可手动拉取最新数据。</li>
-            <li>右上角「<b>设置</b>」集中了系统升级与本帮助手册。</li>
+            <li>右上角「<b>设置</b>」里是本帮助手册与当前版本号。</li>
             <li>所有写配置的操作执行前都会自动备份，对应工具内提供「从备份恢复」，改坏了可随时还原。</li>
           </ul>
         </details>
@@ -731,7 +675,7 @@
           <summary>各页签能做什么</summary>
           <ul>
             <li><b>概览</b>：节点 CPU / 内存 / 硬盘 / 网卡 / 显卡实时概览；虚拟机与容器统一列表，支持搜索筛选、分页、批量启停、开机自启开关、重命名、查看完整配置。</li>
-            <li><b>节点管理</b>：集群节点列表；「+ 加入节点」把新 PVE 主机拉入当前集群，并自动完成共享存储挂载与 vBIOS 同步；卡片行尾可「重启节点」（需重启生效的改动用，需输入确认词「重启节点」），以及按节点角色显示的共享存储修复——客户端节点是「修复NFS客户端」（重挂 NFS 并铺 vBIOS 软链），共享存储导出端是「修复 NFS 服务端」（装/起 NFS 服务、写 /etc/exports 后重新导出）。</li>
+            <li><b>节点管理</b>：集群节点列表；「+ 加入节点」把新 PVE 主机拉入当前集群，并自动完成共享存储挂载与 vBIOS 同步；卡片行尾一个「操作」下拉（重启节点、重启 PVE 服务、一键诊断、关机；后两项结果汇总在列表上方，关机需输入确认词且无远程开机能力），以及工具栏全局的「修复共享存储」按钮——一键修复所有节点：后端先修 NFS 导出端（装/起服务、写 /etc/exports 后重新导出），再逐台重挂客户端 NFS 并铺 vBIOS 软链；离线/占位节点自动跳过，结果在列表上方逐台展示。</li>
             <li><b>节点管理 · 临时取得仲裁</b>：两台集群里一台宕机时，另一台会失去仲裁，PVE 把 <span class="mono">/etc/pve</span> 置为只读，于是<b>建机、改配置等写操作全部失败</b>（报 no quorum）。此时可在节点列表页顶部提示条或离线节点行点「<b>临时取得仲裁</b>」（等价的 <span class="mono">pvecm expected</span>），把预期票数下调到在线节点数，立刻恢复写操作。它<b>只改运行时票数</b>：不改集群配置、不删节点、不影响任何虚机，corosync 重启后自动失效；失联节点恢复后请点「<b>恢复正常仲裁</b>」还原。出于安全，该按钮仅在<b>在线与不可达节点数相等</b>（偶数集群恰好掉一半）时出现——此时对面票数不足达标门槛、不会双写；奇数集群（3 台及以上）不提供该入口，掉 1 台本来就仍有仲裁。</li>
             <li><b>工具箱</b>：按分类排列的运维工具，可搜索；高危操作需输入工具名确认。</li>
             <li><b>传输中心</b>：向共享存储上传虚机模板 / 云镜像 / 磁盘镜像 / vBIOS ROM；下载官方云镜像与 LXC 容器模板；浏览并批量删除存储内容。</li>
@@ -742,7 +686,7 @@
         <details class="help-sec">
           <summary>工具箱怎么用</summary>
           <ul>
-            <li>进入「工具箱」，左侧按分类列出全部工具，顶部搜索框可按工具名过滤。分类为 <b>日常优化 / 启动与内核 / 硬件直通 / 虚机/容器运维 / 网络工具 / 存储与磁盘 / 诊断与救砖</b>（Pro 版另有高级玩法，源码版另有开发版）；多数分类顶部有一个「一键」组合工具，可一次完成该分类的常用优化。</li>
+            <li>进入「工具箱」，左侧按分类列出全部工具，顶部搜索框可按工具名过滤。分类为 <b>日常优化 / 启动与内核 / 硬件直通 / 虚机/容器运维 / 网络工具 / 存储与磁盘 / 诊断与救砖</b>；多数分类顶部有一个「一键」组合工具，可一次完成该分类的常用优化。</li>
             <li>使用步骤：点选工具 → 弹窗内填写参数 → 点「执行」。按风险分级确认：<span class="risk info">只读</span> 直接执行；<span class="risk low">普通</span> 弹窗内确认一次；<span class="risk high">高危</span> 须原样输入工具名（服务端校验）。</li>
             <li>部分工具会给出<b>前置依赖提示</b>（例如更新软件包前建议先更换软件源），按提示顺序执行可避免失败。</li>
             <li>弹窗顶部的「<b>执行节点</b>」决定任务在哪台机器上跑（默认本机＝控制机，也可选其它集群节点）。虚机/容器类操作（快照、克隆、备份、删除、直通、调内核参数等）用的是节点本地的 <span class="mono">qm/pct</span>，<b>只能作用于执行节点上的虚机</b>，所以「虚机/容器（VMID）」下拉<b>只列执行节点上的对象</b>：要操作别的节点上的虚机，请先切换执行节点。选错会被服务端直接拦下（给出该虚机属于哪个节点），不会再出现「界面显示成功、其实什么都没做」。</li>
@@ -786,31 +730,14 @@
           <p class="muted u-text125-mt10" >不再需要直通时：先用「移除 VM 全部直通」清掉 VM 上的挂载，再用「回收直通设备」解绑 vfio 并装回原驱动；默认也会移除该驱动的屏蔽配置，重启后能自动加载，无需再单独处理。</p>
         </details>
 
-        <!-- 高级玩法（Pro 专属）：Lite 版隐藏；data-edition 由 applyEditionVisibility 按运行档位显隐 -->
-        <details class="help-sec hidden" data-edition="pro">
-          <summary>高级玩法 · 显卡 vGPU</summary>
-          <p style="font-size:13px;font-weight:600;margin:0 0 6px">NVIDIA 专业卡（T4 / A10 / A40 / L4 / L40 等）</p>
+        <details class="help-sec">
+          <summary>加入集群 / 扩容</summary>
           <ol>
-            <li>「传输中心 → 上传文件」选「vGPU 宿主机物料」，上传宿主机驱动
-              （<span class="mono">NVIDIA-Linux-x86_64-&lt;版本&gt;-vgpu-kvm.run</span>）。</li>
-            <li>「工具箱 → 高级玩法 → <b>N卡 vGPU 宿主机准备</b>」：先执行「阶段一：环境准备」，
-              <b>重启宿主机</b>后再执行「阶段二：安装驱动」。</li>
-            <li><b>N卡 vGPU 分配</b>：选虚机与 mdev 规格写入配置；mdev 不能热插拔，
-              运行中的虚机会自动关机 → 改配置 → 开机。</li>
-            <li><b>N卡 vGPU 部署与使用</b>：部署授权服务（DLS）并给出客户机取授权命令；
-              虚机内还需装同分支的 guest 驱动。</li>
+            <li>「节点管理 → + 加入节点」，填写新机器地址与 root 密码。</li>
+            <li>加入成功后自动完成共享存储挂载与 vBIOS 软链同步。</li>
           </ol>
-
-          <p class="u-subhead">Intel 核显（GVT-g / SR-IOV）</p>
-          <ol>
-            <li><b>Intel 核显 vGPU</b> → 「查看状态与能力（只读）」：先体检，并确认本机该走 SR-IOV 还是 GVT-g。</li>
-            <li>「开启核显 vGPU」（可指定技术路线与 VF 数量）→ <b>重启宿主机</b>；不再需要时用「关闭并还原」。</li>
-            <li>「分配虚拟显卡给虚机」后用「验证实例是否真的可用」确认；不需要时「从虚机回收虚拟显卡」。</li>
-          </ol>
-          <p class="muted u-text125-mt10" >两条流程都会改动内核启动参数或虚机配置，执行前请确认宿主机可随时重启。</p>
+          <p class="muted u-text125-mt10" >不限制机器数量，也不需要授权码。</p>
         </details>
-
-
 
         <details class="help-sec">
           <summary>常见问题（按现象找工具）</summary>
@@ -831,7 +758,7 @@
             <li><b>系统时间不准 / 时区不对</b> → 「日常优化 → 时间同步」（NTP 同步可选国内源 / 主板 RTC 校准 / 时区修改）。</li>
             <li><b>想一次做完常用优化</b> → 「日常优化 → 一键优化」（组合工具）。</li>
             <li><b>要把 PVE 8 升到 9</b> → 「日常优化 → PVE 8.x 升级到 9.x」。</li>
-            <li><b>想确认当前版本 / 形态（Lite / Pro / 源码版）</b> → 本弹窗标题旁的版本胶囊，或「系统升级」分区的「当前版本」。</li>
+            <li><b>想确认当前版本</b> → 本弹窗标题旁的版本胶囊。</li>
           </ul>
           <p class="u-subhead">启动与引导</p>
           <ul>
@@ -908,11 +835,15 @@
             <li><b>只想看某个节点的虚机/容器</b> → 点节点卡片筛选（或顶部节点标签），再点标签上的 ✕ 清除。</li>
             <li><b>数据看着不新</b> → 右上角「刷新」手动拉最新（概览本身每 10 秒自动刷新，慢采集项走后台缓存）。</li>
           </ul>
+          <p class="u-subhead">授权</p>
+          <ul>
+            <li><b>需要授权码 / 机器数量限制吗</b> → 不需要：不限机器数量、没有授权码。</li>
+            <li><b>加节点失败怎么排查</b> → 确认新节点 root 密码正确、22 端口可达，且本机已装 ssh 与 setsid。</li>
+          </ul>
           <p class="u-subhead">通用</p>
           <ul>
-            <li><b>页面提示 Failed to fetch</b> → 若是点「升级 / 回滚」之后出现，属正常：服务正在重启、
-              回执丢在路上，任务通常已被受理（页面会自动轮询确认，不必重复提交）；其它情况多为
-              瞬时并发请求过多或服务未运行，稍后重试即可。</li>
+            <li><b>页面提示 Failed to fetch</b> → 多为瞬时并发请求过多或服务未运行，稍后重试即可；
+              重启服务后刷新页面也能恢复。</li>
             <li><b>改完配置没生效</b> → 内核启动参数、硬件直通、网络配置等改动需要重启节点才生效；到「<b>节点管理</b>」对应节点行尾点「<b>重启节点</b>」（需输入确认词「重启节点」）。</li>
             <li><b>想找回改坏前的配置</b> → 写配置前均有自动备份，对应工具内提供「从备份恢复」。</li>
             <li><b>任务跑太久想中止</b> → 执行弹窗里的「强制结束」，之后可在「执行日志」查看轨迹。</li>
@@ -921,18 +852,11 @@
         </details>
 
         <details class="help-sec">
-          <summary>系统升级</summary>
+          <summary>手工升级</summary>
           <ol>
-            <li>「<b>设置 → 系统升级</b>」上传发行包
-              （<span class="mono">pvewebtools-&lt;形态&gt;-&lt;版本&gt;-&lt;日期&gt;.tar.gz</span>）后点「上传并校验」：
-              这一步只做体检、不替换程序，校验不通过不会改动任何文件。</li>
-            <li>校验全绿后点「<b>开始升级并重启服务</b>」：服务短暂重启、页面自动等待恢复，
-              新版本启动失败会<b>自动回滚</b>到升级前版本；要退回上一版，点「回滚到 &lt;旧版本&gt;」（同样会重启）。</li>
-            <li>版本号需<b>大于本机当前版本</b>；装同版本或更低版本会被拦下，需点「允许重装/降级并重新校验」再确认。
-              升级仅替换程序本体，全程不改动配置与数据。</li>
-            <li>提示「不支持自升级」（源码版运行 / 未注册 systemd 服务 / 缺 systemd-run）时，
-              上传校验仍可用；真要升级请用发行包内的 <span class="mono">install.sh</span> 手工部署
-              （不带授权码即沿用原授权码与端口）。</li>
+            <li>升级方式为<b>替换程序目录后重启服务</b>。</li>
+            <li>拉取新版本代码（或解压新发行包）覆盖部署目录，然后 <span class="mono">systemctl restart pvewebtools</span>。</li>
+            <li>配置文件（<span class="mono">/etc/pvewebtools/</span> 下的存储配置、日志）不在程序目录内，覆盖不会丢。</li>
           </ol>
         </details>
       </section>
@@ -976,8 +900,8 @@
 
 <!-- 前端脚本：classic script 按序加载（**不是** ES module）——函数与顶层 let 处于同一全局
  作用域，index.html 里的内联 onclick 因此照旧可用；改 module 会让这些内联处理器全部失效。
- 基础设施与页面模块已拆到 js/（M3）：顺序为 状态 → 展示层 → 请求层 → 页面模块 → 入口 -->
-<!-- 中文文案字典（T4.4，与 core/web/messages.py 同步）：先于各模块加载，定义 window.t / window.MESSAGES -->
+ 基础设施与页面模块在 js/ 下：顺序为 状态 → 展示层 → 请求层 → 页面模块 → 入口 -->
+<!-- 中文文案字典（与 core/web/messages.py 同步）：先于各模块加载，定义 window.t / window.MESSAGES -->
 <script src="zh.js"></script>
 <script src="js/state.js"></script>
 <script src="js/ui.js"></script>

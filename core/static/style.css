@@ -67,7 +67,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .btn:focus-visible, .btn-icon:focus-visible,
 .node-tab:focus-visible, .cat-item:focus-visible,
 .pager-btn:focus-visible, .tab:focus-visible,
-.stab:focus-visible, .onboot-toggle:focus-visible,
+.stab:focus-visible, .onboot-switch:focus-visible,
 .desc-input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -124,7 +124,7 @@ h1 b { font-weight: 700; color: var(--accent-text); }
 .tabs { display: flex; gap: 0; flex-shrink: 0; }
 
 /* ---- 主体 ---- */
-main { padding: 20px 24px; max-width: 1440px; margin: 0 auto; }
+main { padding: 20px 24px; max-width: 1920px; margin: 0 auto; }
 /* 页签切换淡入过渡，避免视图硬切 */
 main:not(.hidden) { animation: viewFade .18s ease; }
 @keyframes viewFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -208,7 +208,25 @@ h2 { font-size: 17px; margin-bottom: 12px; color: var(--text); font-weight: 600;
 .node-row .nc-cpu, .node-row .nc-mem { min-width: 200px; }
 .node-row .node-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
 .node-row .node-actions .btn-sm { margin: 0; }
-.btn-nfs-fix { min-width: 110px; text-align: center; white-space: nowrap; }
+/* 节点行「操作」下拉：一个入口收纳节点级动作，避免每行堆多个按钮 */
+.node-row .node-ops { position: relative; }
+.node-row .node-ops > summary { list-style: none; cursor: pointer; }
+.node-row .node-ops > summary::-webkit-details-marker { display: none; }
+.node-ops-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+  min-width: 172px; padding: 6px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: var(--shadow-2);
+}
+.node-ops-menu .btn { width: 100%; text-align: left; white-space: nowrap; margin: 0; }
+.node-ops-menu .btn.danger { color: var(--red); }
+/* 节点操作结果（一键修复 / 重启服务 / 诊断）里的脚本输出：限高滚动，不撑爆提示条 */
+.node-action-log {
+  max-height: 180px; overflow: auto; margin: 4px 0 0; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  font: 12px/1.55 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+  color: var(--text);
+}
 /* 集群仲裁提示条（节点管理页）：无仲裁时用红色描边警示「写操作会被 PVE 拒绝」，
    并把「临时取得仲裁 / 恢复正常仲裁」入口放在右侧；有仲裁时用中性色仅作信息展示 */
 .quorum-bar {
@@ -481,6 +499,11 @@ thead { background: var(--panel2); }
 #guestTable td[data-label="状态"], #guestTable td[data-label="内存"],
 #guestTable td[data-label="操作"], #guestTable td[data-label="运行时长"],
 #guestTable td[data-label="开机自启"] { white-space: nowrap; }
+/* 开机自启列：表头与开关一起居中对齐，避免左边距参差、看着零碎 */
+#guestTable .onboot-col, #guestTable td[data-label="开机自启"] { text-align: center; }
+/* 表头一律不换行：列被内容挤压时「开机自启」会断成「开机自 / 启」两行，很难看；
+   外层 .guest-table-wrap 已支持横向滚动，宁可整体变宽也不让表头折行 */
+#guestTable th { white-space: nowrap; }
 th { font-size: 13px; color: var(--muted); font-weight: 600; }
 tbody tr { border-top: 1px solid var(--border); transition: background .12s; }
 tbody tr:hover { background: var(--panel2); box-shadow: inset 3px 0 0 var(--accent); }
@@ -559,19 +582,21 @@ tr.template-row:hover { opacity: .95; }
 .btn-sm.start:hover { border-color: var(--accent); color: var(--accent-text); }
 .btn.danger:hover { border-color: var(--red); color: var(--red); }
 
-/* 开机自启开关：开=绿色实底，关=灰色描边，点击切换 */
-.onboot-toggle {
-  padding: 2px 10px; font-size: 13px; cursor: pointer;
-  border: 1px solid var(--border); border-radius: 10px;
-  color: var(--muted); background: var(--panel2);
-  transition: all .15s;
+/* 开机自启开关：滑块样式，开=绿色、关=灰色，点击切换 */
+.onboot-switch {
+  display: inline-block; position: relative; vertical-align: middle;
+  width: 40px; height: 22px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--border);
+  cursor: pointer; transition: background .15s, border-color .15s;
 }
-/* 亮绿实心：深字（白字压亮绿仅 2.3:1，深字 7.6:1） */
-.onboot-toggle.on {
-  color: var(--on-bright); background: var(--green); border-color: var(--green); font-weight: 600;
+.onboot-switch .knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--muted); transition: left .15s, background .15s;
 }
-.onboot-toggle:hover { border-color: var(--accent-text); color: var(--accent-text); }
-.onboot-toggle.on:hover { color: var(--on-bright); background: var(--green); border-color: var(--green); }
+.onboot-switch.on { background: var(--green); border-color: var(--green); }
+.onboot-switch.on .knob { left: 20px; background: var(--on-bright); }
+.onboot-switch:hover { border-color: var(--accent-text); }
 
 /* 备注列：可点击内联编辑，过长省略 */
 .desc-edit { cursor: pointer; display: block; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -640,38 +665,7 @@ tr.template-row:hover { opacity: .95; }
 #settingsModal .empty-state { padding: 20px 0; font-size: 13px; }
 #settingsModal .empty-icon { font-size: 20px; margin-bottom: 4px; }
 
-/* 授权状态徽标：标题右侧只放状态本身（不再重复「授权」二字），圆点跟随文字色。
-   状态徽标本身就是用来表达状态的，故正常走绿、异常走橙（不同于 .pct/温度那类「正常值不上色」） */
-.license-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; vertical-align: 1px; color: var(--muted); }
-.license-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.license-badge.ok { color: var(--green); }
-.license-badge.bad { color: var(--accent-text); }
-
-/* 授权概览卡：键值行左右对齐，比原来的大卡片紧凑，数值一眼可比 */
-.license-kv { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
-.license-kv > div {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
-  padding: 9px 14px; font-size: 13px;
-}
-.license-kv > div + div { border-top: 1px solid var(--border); }
-.license-kv span { color: var(--muted); white-space: nowrap; }
-.license-kv code { font-family: Consolas, monospace; word-break: break-all; text-align: right; }
-/* 机器列表（已授权 / 未授权共用）：一行一台（机器 / 管理 IP / 指纹 / 操作）。
-   台数多时（5~10 台）比「每台一张两行卡片」紧凑得多，也便于横向对比同一列信息；
-   指纹列等宽、超宽省略（完整值在 title 里），行内「复制」一键取走。 */
-.lic-table { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
-.lic-table.alert { border-color: var(--accent-text); }
-.lic-row { display: flex; align-items: center; gap: 14px; padding: 8px 14px; font-size: 13px; }
-.lic-row + .lic-row { border-top: 1px solid var(--border); }
-.lic-row.head { color: var(--muted); font-size: 12.5px; background: var(--panel2); }
-.lic-row .lc-name { flex: 0 0 150px; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lic-row .lc-ip { flex: 0 0 130px; min-width: 0; font-family: Consolas, monospace; color: var(--muted); }
-.lic-row .lc-fp { flex: 1 1 auto; min-width: 0; font-family: Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lic-row .lc-act { flex: 0 0 auto; }
-.lic-row .lc-act .btn { margin: 0; }
-.lic-warn { color: var(--accent-text); font-weight: 600; }
-
-/* ---- 系统设置弹窗（授权 / 帮助手册）：分区 Tab + 设置按钮角标 ---- */
+/* ---- 系统设置弹窗（帮助手册）：分区 Tab ---- */
 .settings-tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); }
 .stab {
   background: none; border: none; border-bottom: 2px solid transparent;
@@ -696,12 +690,6 @@ tr.template-row:hover { opacity: .95; }
 .help-sec p { margin: 0; }
 .help-sec li { font-size: 13px; line-height: 1.8; }
 .help-sec li + li { margin-top: 4px; }
-/* 设置按钮上的状态角标（未授权 / 超出授权）：橙色小圆点，提示进去处理 */
-.settings-badge {
-  display: inline-block; width: 7px; height: 7px; margin-left: 6px;
-  border-radius: 50%; background: var(--accent); vertical-align: 1px;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
-}
 /* 设置内容淡入：打开弹窗时避免内容生硬跳变 */
 .settings-pane { animation: paneIn .16s ease; }
 @keyframes paneIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1153,7 +1141,7 @@ tr.template-row:hover { opacity: .95; }
 .tool-form .checkbox-wrap > span { min-width: 0; line-height: 1.5; }
 /* 选框组（如批量删除虚机多选）：与文本框/下拉框同排（160px 标签右侧），
    单列可滚动列表，长虚机名自动换行完整显示；提交时逗号拼接 */
-.tool-form .checkbox-group { flex: 1; min-width: 0; max-height: 360px; overflow-y: auto;
+.tool-form .checkbox-group { flex: 1; min-width: 0; max-height: 220px; overflow-y: auto;
   display: grid; grid-template-columns: 1fr; gap: 4px 14px;
   padding: 8px 10px; box-sizing: border-box; background: var(--panel2);
   border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px; }
@@ -1479,6 +1467,10 @@ input.input-ok { border-color: var(--green) !important; box-shadow: 0 0 0 1px va
   padding: 10px 14px;
   margin-bottom: 12px;
 }
+/* 元信息条内的操作按钮（复制日志/强制结束）：推到行尾右侧，不和元信息挤在一起；
+   多个按钮时只由第一个吃掉剩余空间，其余紧随其后 */
+.job-meta button { margin-left: auto; }
+.job-meta button + button { margin-left: 0; }
 
 #jobFullLog { max-height: 300px; }
 

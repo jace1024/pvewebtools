@@ -1,9 +1,9 @@
-"""任务日志实时推送（SSE）（结构重构 M2/T2.4 从 server.py 抽出）。
+"""任务日志实时推送（SSE）。
 
 连接即先回放已有输出，之后逐行推送新增，任务终态时推 ``event: done``；替代前端 800ms
 轮询，断流（服务重启）由前端回退轮询兜底。以 mixin 形式供 ``server.ApiHandler`` 多继承，
-方法体与迁移前完全一致，仅把依赖改为本模块 import（``jobs`` / ``_sanitize_text`` /
-``json`` / ``parse_qs`` / ``urlparse``）。
+依赖由本模块自行 import（``jobs`` / ``_sanitize_text`` / ``json`` / ``parse_qs`` /
+``urlparse``）。
 """
 
 import json
@@ -16,8 +16,7 @@ from core.web.http_util import _sanitize_text
 class SseMixin:
     # ---- SSE（任务日志实时推送）辅助 ----
     # 抽成类方法，而不是 _handle_job_stream 里的局部函数：该方法有两条路径（内存任务 / 落盘兜底），
-    # 若把 send/enc 定义在第二条路径处，第一条路径引用它们会运行时 NameError；
-    # Cython 编译期也会直接拒绝（local variable ... referenced before assignment）。
+    # 若把 send/enc 定义在第二条路径处，第一条路径引用它们会运行时 NameError。
 
     @staticmethod
     def _sse_enc(s):

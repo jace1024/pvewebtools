@@ -1,4 +1,4 @@
-"""HTTP 基础设施与「响应出口净化」（结构重构 M2/T2.1 从 server.py 抽出）。
+"""HTTP 基础设施与「响应出口净化」。
 
 分两块，都只依赖标准库、不依赖 server.py（避免循环导入）：
 
@@ -6,7 +6,7 @@
    ``str(e)`` 或子进程 stderr 直接拼进响应体与任务日志，会把解释器路径、内部异常类型、
    第三方包信息暴露给浏览器。这里在**响应出口**（HTTP JSON / SSE）统一擦除：命中技术特征时
    只保留调用方写好的中文前缀（如「删除失败」），完整原文写服务日志（journalctl 可查，排障
-   不受影响）；带 ``--debug`` 启动时原样输出（编译产物已屏蔽该开关，见下）。
+   不受影响）；带 ``--debug`` 启动时原样输出。
 
 2. **HttpUtilMixin**：统一收发响应的方法（JSON / 错误 / 静态资源 / gzip / ETag / body 读取），
    以 mixin 形式供 ``server.ApiHandler`` 多继承，保持方法体与迁移前完全一致。
@@ -45,8 +45,7 @@ _LEAK_RE = re.compile(
 _LEAK_FALLBACK = "内部错误，详情请查看服务日志"
 _LEAK_SUFFIX = "（详情请查看服务日志）"
 _DEBUG_DETAIL = bool(os.environ.get("PVE_WEBTOOLS_DEBUG")) or ("--debug" in sys.argv)
-# 编译产物（入口 core/entry/main.py 已屏蔽 --debug 与 PVE_WEBTOOLS_DEBUG，并置
-# PVE_WEBTOOLS_BUILT=1）不再提示调试开关——报错保持中性，不引导客户去找调试入口。
+# 置了 PVE_WEBTOOLS_BUILT 的部署不再提示调试开关——报错保持中性，不引导用户去找调试入口。
 _DEBUG_HINT = "" if os.environ.get("PVE_WEBTOOLS_BUILT") else "（加 --debug 启动可查看细节）"
 
 
@@ -113,7 +112,7 @@ class HttpUtilMixin:
 
     def handle_error(self, request, client_address):  # noqa: ARG002
         # 客户端中途断开（取消下载/关闭页面）属正常行为；其它异常也不打印 Python 栈追踪
-        # （栈里含 .py 路径与解释器细节），细节仅在 --debug 模式下输出（编译产物无此出口）。
+        # （栈里含 .py 路径与解释器细节），细节仅在 --debug 模式下输出。
         exc = sys.exc_info()[1]
         if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
             return

@@ -1,4 +1,4 @@
-// 工具箱（M3/T3.4 第 3 块，从 app.js 抽出）：工具清单与分类、工具执行弹窗（参数表单 + 实时日志
+// 工具箱：工具清单与分类、工具执行弹窗（参数表单 + 实时日志
 // + 分级风险确认 + 执行节点选择）、定时开关机管理、虚机/容器快照管理。
 //
 // 依赖方向：调用 js/ui.js（$、格式化、转义、Toast、appConfirm、createSearchSelect）与
@@ -214,31 +214,12 @@ async function openTool(toolId, prefill = {}, preNode = "") {
   if (!currentTool) return;
   // 换工具 / 重开弹窗：上次的成功记录不跨工具复用，否则新工具一进来「重启生效」就是亮的
   lastOkToolId = null;
-  // 开源版无授权闸口，工具箱始终可用
   // 在表单容器上挂工具标识 class（tool-<id>），便于按工具精确收敛样式（如某工具专属的控件高度）
   $("toolForm").className = "tool-form tool-" + currentTool.id;
   // 每次打开工具都先收起「强制结束」：它是上一次执行态的遗留（关弹窗只 stopPolling，
-  // 跑完隐藏按钮的回调不会执行），不重置会让合成入口/其它工具平白多出一个强杀按钮
+  // 跑完隐藏按钮的回调不会执行），不重置会让其它工具平白多出一个强杀按钮
   $("btnKillJob").classList.add("hidden");
 
-  // 合成入口（composite）：仅展示操作系统类型选择器，委托给真实子工具
-  if (currentTool.composite) {
-    $("toolModalTitle").innerHTML = `${escapeHtml(currentTool.name)} ${RISK_TAG[currentTool.risk] || ""}`;
-    $("toolDesc").textContent = currentTool.desc;
-    $("toolForm").innerHTML = `<div class="form-row"><label>操作系统类型</label>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button type="button" class="btn" onclick="openTool('linux_cloudimg_build')">Linux 云镜像制作</button>
-        <button type="button" class="btn" onclick="openTool('windows_cloudimg_build')">Windows 云镜像制作</button>
-      </div></div>`;
-    $("btnRunTool").classList.add("hidden");
-    $("confirmRow").classList.add("hidden");
-    $("jobStatus").textContent = "";
-    clearLogPanel();
-    setLogVisible(false);
-    $("toolModal").classList.remove("hidden");
-    renderToolDesc(currentTool.desc);   // 弹窗可见后再测量，折叠判定才准
-    return;
-  }
   $("btnRunTool").classList.remove("hidden");
 
   stopPolling();
@@ -308,7 +289,7 @@ async function openTool(toolId, prefill = {}, preNode = "") {
       <div class="checkbox-group" data-param="${escapeHtml(p.name)}" data-options-from="${escapeHtml(p.options_from)}"${p.no_template ? ' data-no-template="1"' : ""}${p.no_passthrough ? ' data-no-passthrough="1"' : ""}>
         <div class="checkbox-loading">加载中…</div></div>
       <div class="checkbox-actions">
-        <span style="font-size:12.5px;color:var(--muted);line-height:1.5">可多选</span>
+        <span class="checkbox-count" style="font-size:12.5px;color:var(--muted);line-height:1.5">可多选</span>
         <button type="button" class="btn btn-sm" onclick="checkboxToggleAll(${jsStr(p.name)}, true)">全选</button>
         <button type="button" class="btn btn-sm" onclick="checkboxToggleAll(${jsStr(p.name)}, false)">清空</button>
       </div></div>`;
@@ -343,12 +324,6 @@ async function openTool(toolId, prefill = {}, preNode = "") {
             : ' onchange="onCloudImageChange(this)"';
           return `<div class="form-row">${labelHtml}
             <select data-param="${escapeHtml(p.name)}" data-options-from="cloud_images" class="u-grow32"${ciHook}>
-              <option value="">加载中…</option></select></div>`;
-        }
-        // 社区脚本(dev)：本地仓库里可一键安装的应用脚本下拉（不再附访问地址/默认账号提示行）
-        if (p.options_from === "community_scripts") {
-          return `<div class="form-row">${labelHtml}
-            <select data-param="${escapeHtml(p.name)}" data-options-from="community_scripts" class="u-grow32">
               <option value="">加载中…</option></select></div>`;
         }
         // 模板快速建机：模板来源下拉 + 内联「上传模板」入口（打开统一上传弹窗，预选 backup 类型）
@@ -631,26 +606,6 @@ async function openTool(toolId, prefill = {}, preNode = "") {
     if (tzSel) { syncTz(); tzSel.addEventListener("change", syncTz); }
   }
 
-  // vGPU 分配：qm 只能操作本节点虚机 —— 选虚机后把执行节点切到该虚机所在节点，
-  // 并刷新显卡/规格下拉（规格是节点级资源，且随所选显卡过滤）
-  if (currentTool.id === "vgpu_assign") {
-    const vmidSel = $("toolForm").querySelector('select[data-param="vmid"]');
-    const gpuSel = $("toolForm").querySelector('select[data-param="gpu"]');
-    const syncAssignSources = () => {
-      const nodeSel = $("nodeSelect");
-      const vm = vmidSel && vmidSel.value
-        ? allGuests.find((x) => String(x.vmid) === vmidSel.value) : null;
-      if (vm && nodeSel && [...nodeSel.options].some((o) => o.value === vm.node) && nodeSel.value !== vm.node) {
-        nodeSel.value = vm.node;
-        nodeSel.dispatchEvent(new Event("change"));
-      }
-      fillDynamicOptions("vgpu_gpus").then(() => fillDynamicOptions("vgpu_types"));
-    };
-    if (vmidSel) vmidSel.addEventListener("change", syncAssignSources);
-    if (gpuSel) gpuSel.addEventListener("change", () => fillDynamicOptions("vgpu_types"));
-    fillDynamicOptions("guests_all").then(syncAssignSources);
-  }
-
   // 迁移：qm/pct 只能操作本节点实例 —— 选实例后把「执行节点」切到它当前所在的节点（即源节点），
   // 并按所选实例的真实情况提示哪些限制会拦住迁移。脚本里对这些限制还有一份硬校验，
   // 前端这层只是让用户在提交前就看到，不必等任务跑起来才报错。
@@ -700,19 +655,21 @@ async function openTool(toolId, prefill = {}, preNode = "") {
     $("nodeSelect").addEventListener("change", loadScheduleList);
     loadScheduleList();
     // 定时任务写在执行节点的 cron 里：选虚机后自动把执行节点切到虚机所在节点，
-    // 避免任务写到别的节点导致不生效；弹窗打开时按预填/默认选中值先同步一次
-    const vmidSel = $("toolForm").querySelector('select[data-param="vmid"]');
+    // 避免任务写到别的节点导致不生效；弹窗打开时按预填/默认选中值先同步一次。
+    // 勾选框组多选：仅当所选虚机都在同一节点时才切换；跨节点时保持用户所选（执行时逐台按归属校验拦截）
+    const vmidEl = $("toolForm").querySelector('[data-param="vmid"]');
     const syncNodeByGuest = () => {
-      if (!vmidSel || !vmidSel.value) return;
-      const g = allGuests.find((x) => String(x.vmid) === vmidSel.value);
-      if (!g) return;
+      const gs = formVmids().map((id) => allGuests.find((x) => String(x.vmid) === id)).filter(Boolean);
+      if (!gs.length) return;
+      const nodes = [...new Set(gs.map((g) => g.node))];
+      if (nodes.length !== 1) return;
       const nodeSel = $("nodeSelect");
-      if (nodeSel && [...nodeSel.options].some((o) => o.value === g.node) && nodeSel.value !== g.node) {
-        nodeSel.value = g.node;
+      if (nodeSel && [...nodeSel.options].some((o) => o.value === nodes[0]) && nodeSel.value !== nodes[0]) {
+        nodeSel.value = nodes[0];
         nodeSel.dispatchEvent(new Event("change"));   // 触发主板探测与任务列表刷新
       }
     };
-    if (vmidSel) vmidSel.addEventListener("change", syncNodeByGuest);
+    if (vmidEl) vmidEl.addEventListener("change", syncNodeByGuest);
     fillDynamicOptions("guests_all").then(syncNodeByGuest);
     // 定时开关机操作固定为「添加/覆盖」：action 为隐藏固定值 add，删除/暂停/启用由任务列表按钮触发
     // 时间冲突内联校验：开机/关机星期相同时，关机时间须晚于开机时间
@@ -780,13 +737,9 @@ async function openTool(toolId, prefill = {}, preNode = "") {
   clearLogPanel();
   setLogVisible(false);
   const actSelForReboot = $("toolForm").querySelector('select[data-param="action"]');
-  // 宿主机「重启生效」按钮：「开启硬件直通」弹窗常驻；「Intel 核显 vGPU」仅其开启/关闭需要
-  //（两者都写内核启动参数 + initramfs，必须重启宿主机；该工具的分配/回收只改虚机 hostpci，不显示）
+  // 宿主机「重启生效」按钮：「开启硬件直通」弹窗常驻（写内核启动参数 + initramfs，必须重启宿主机）
   const syncHostRebootBtn = () => {
-    const need = toolId === "iommu_manage"
-      || (toolId === "intel_igpu_virt" && !!actSelForReboot
-          && ["enable", "disable"].includes(actSelForReboot.value));
-    $("btnRebootNode").classList.toggle("hidden", !need);
+    $("btnRebootNode").classList.toggle("hidden", toolId !== "iommu_manage");
     syncRunBtnGate();   // 显隐变化后重新过闸门：刚露出的按钮不能绕过高危锁定
   };
   syncHostRebootBtn();
@@ -801,8 +754,8 @@ async function openTool(toolId, prefill = {}, preNode = "") {
     syncRunBtnGate();   // 显隐变化后重新过闸门：刚露出的按钮不能绕过高危锁定
   };
   syncGuestRebootBtn();
-  // 切换「操作」后同步两个生效按钮：PCIe 直通 ↔ 块映射、核显 vGPU 的开启/关闭 ↔ 分配/回收
-  if (actSelForReboot && ["pcie_manage", "intel_igpu_virt"].includes(toolId)) {
+  // 切换「操作」后同步两个生效按钮：PCIe 直通 ↔ 块映射
+  if (actSelForReboot && toolId === "pcie_manage") {
     actSelForReboot.addEventListener("change", () => { syncGuestRebootBtn(); syncHostRebootBtn(); });
   }
 
@@ -815,8 +768,15 @@ async function openTool(toolId, prefill = {}, preNode = "") {
   fillDynamicOptions().then(() => {
     for (const [name, val] of pendingDynamicPrefill) {
       const el = $("toolForm").querySelector(`[data-param="${name}"]`);
-      // 选框组（div 无 options）跳过静态回填，仅 select 适用
-      if (el && el.options && [...el.options].some((o) => o.value === val)) el.value = val;
+      if (el && el.classList.contains("checkbox-group")) {
+        // 勾选框组：按值勾选对应项，并派发 change 让依赖所选虚机的联动（快照列表/节点同步等）跟上
+        const inp = [...el.querySelectorAll('input[type="checkbox"]')]
+          .find((c) => c.value === String(val));
+        if (inp && !inp.disabled) {
+          inp.checked = true;
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      } else if (el && el.options && [...el.options].some((o) => o.value === val)) el.value = val;
     }
     // 磁盘导出：动态下拉（含存储）填充完成后，刷新一次历史导出目录
     if (currentTool && currentTool.id === "disk_export") loadExportHistory();
@@ -911,7 +871,8 @@ async function openTool(toolId, prefill = {}, preNode = "") {
   const isSnapshot = currentTool.id === "vm_snapshot";
   $("snapshotSection").classList.toggle("hidden", !isSnapshot);
   if (isSnapshot) {
-    const vmidSel = $("toolForm").querySelector('select[data-param="vmid"]');
+    // vmid 可能是勾选框组（div）：[data-param] 通配两种控件，change 事件都会冒泡到容器
+    const vmidEl = $("toolForm").querySelector('[data-param="vmid"]');
     const actSel = $("toolForm").querySelector('select[data-param="action"]');
     // 操作固定为「创建快照」：禁用下拉，删除操作由快照列表按钮触发
     if (actSel) {
@@ -919,9 +880,19 @@ async function openTool(toolId, prefill = {}, preNode = "") {
       actSel.value = "take";
     }
     currentSnapshotAction = "take";
-    // 切换虚机后刷新快照列表
-    if (vmidSel) vmidSel.addEventListener("change", () => loadSnapshotList());
+    // 勾选/切换虚机后刷新快照列表
+    if (vmidEl) vmidEl.addEventListener("change", () => loadSnapshotList());
     loadSnapshotList();
+  }
+
+  // 勾选框组多选虚机：勾选变化后联动刷新依赖所选虚机的动态下拉（如磁盘导出的磁盘列表）
+  const vmidBox = $("toolForm").querySelector('.checkbox-group[data-param="vmid"]');
+  if (vmidBox) {
+    vmidBox.addEventListener("change", () => {
+      for (const s of ["vm_disks"]) {
+        if (document.querySelector(`#toolForm [data-options-from="${s}"]`)) fillDynamicOptions(s);
+      }
+    });
   }
 
   // GRUB 配置管理操作联动：启动参数仅增/删时用，备注仅备份时用，备份文件名仅恢复时用，其余置灰避免误填
@@ -995,7 +966,7 @@ async function openTool(toolId, prefill = {}, preNode = "") {
 
   if (toolId === "guest_kargs") {
     const actSel = $("toolForm").querySelector('select[data-param="action"]');
-    const vmidSel = $("toolForm").querySelector('select[data-param="vmid"]');
+    const vmidEl = $("toolForm").querySelector('[data-param="vmid"]');
     const presetSel = $("toolForm").querySelector('select[data-param="preset"]');
     const kargsIn = $("toolForm").querySelector('input[data-param="kargs"]');
     const rebootChk = $("toolForm").querySelector('input[data-param="reboot"]');
@@ -1004,7 +975,8 @@ async function openTool(toolId, prefill = {}, preNode = "") {
     let liveStatus = null;    // 其实时状态（null = 未知）
     const syncGuestKargsState = () => {
       const viewing = actSel ? actSel.value === "list" : false;
-      const cur = vmidSel ? vmidSel.value : "";
+      // 多选时以第一台作为电源态参考（单选行为不变）
+      const cur = formVmids()[0] || "";
       const g = cur ? allGuests.find((x) => String(x.vmid) === cur) : null;
       // 有该虚机的实时状态就用它，否则退回列表状态；都没有（未选/下拉未就绪）则不置灰
       const st = (g && liveVMID === cur && liveStatus) ? liveStatus : (g ? g.status : null);
@@ -1014,7 +986,7 @@ async function openTool(toolId, prefill = {}, preNode = "") {
       if (autoChk) autoChk.disabled = st ? st === "running" : false;
     };
     const refreshLiveStatus = () => {
-      const cur = vmidSel ? vmidSel.value : "";
+      const cur = formVmids()[0] || "";
       const g = cur ? allGuests.find((x) => String(x.vmid) === cur) : null;
       if (!g) { liveVMID = ""; liveStatus = null; syncGuestKargsState(); return; }
       liveVMID = cur;                 // 先用列表里的状态（避免"先是都可点、随后才灰"的闪动）
@@ -1022,7 +994,7 @@ async function openTool(toolId, prefill = {}, preNode = "") {
       syncGuestKargsState();
       // 再实时查一次校正（弹窗打开期间状态可能刚变过）；期间切了虚机就丢弃过期结果
       api(`/guests/${g.node}/${g.type}/${g.vmid}/status`).then((st) => {
-        if (!st || !st.status || (vmidSel ? vmidSel.value : "") !== cur) return;
+        if (!st || !st.status || (formVmids()[0] || "") !== cur) return;
         liveVMID = cur;
         liveStatus = st.status;
         syncGuestKargsState();
@@ -1030,14 +1002,17 @@ async function openTool(toolId, prefill = {}, preNode = "") {
     };
     refreshLiveStatus();   // 初始态跟随默认操作（查看）与所选虚机
     if (actSel) actSel.addEventListener("change", syncGuestKargsState);
-    if (vmidSel) {
-      vmidSel.addEventListener("change", refreshLiveStatus);
-      // 虚机下拉是异步填充的：选项就绪后再同步一次（不再拉接口，避免打乱已选值与预填值）
+    if (vmidEl) {
+      vmidEl.addEventListener("change", refreshLiveStatus);
+      // 虚机列表是异步填充的：选项就绪后再同步一次（不再拉接口，避免打乱已选值与预填值）
       const optWatch = new MutationObserver(() => {
         refreshLiveStatus();
-        if (vmidSel.options.length > 1) optWatch.disconnect();
+        const ready = vmidEl.tagName === "SELECT"
+          ? vmidEl.options.length > 1
+          : vmidEl.querySelectorAll('input[type="checkbox"]').length > 1;
+        if (ready) optWatch.disconnect();
       });
-      optWatch.observe(vmidSel, { childList: true });
+      optWatch.observe(vmidEl, { childList: true });
     }
   }
 
@@ -1128,7 +1103,6 @@ async function openTool(toolId, prefill = {}, preNode = "") {
   if (toolId === "vm_backup") {
     const actSel = $("toolForm").querySelector('select[data-param="action"]');
     if (actSel) {
-      const vmidSel = $("toolForm").querySelector('select[data-param="vmid"]');
       const backupFileSel = $("toolForm").querySelector('select[data-options-from="backups"]');
       const storeSel = $("toolForm").querySelector('select[data-options-from="backup_storages"]');
       const modeSel = $("toolForm").querySelector('select[data-param="mode"]');
@@ -1137,8 +1111,7 @@ async function openTool(toolId, prefill = {}, preNode = "") {
       const backupNameIn = $("toolForm").querySelector('input[data-param="backup_name"]');
       const syncBackupAction = () => {
         const isBackup = actSel.value === "backup";
-        // 备份：VM + 备份存储 + 模式 + 压缩 + 文件名
-        if (vmidSel) vmidSel.disabled = !isBackup;
+        // vmid 为勾选框组多选：备份=源虚机、还原=目标虚机，两种操作都需要可选，不再随操作置灰
         if (storeSel) storeSel.disabled = !isBackup;
         if (modeSel) modeSel.disabled = !isBackup;
         if (compressSel) compressSel.disabled = !isBackup;
@@ -1238,7 +1211,7 @@ async function openTool(toolId, prefill = {}, preNode = "") {
     }
   }
 
-  // 「虚机内装 Docker」：版本下拉为全量稳定版，不随虚机变化，无需联动刷新
+  // 「一键安装Docker」：版本下拉为全量稳定版，不随虚机变化，无需联动刷新
 
   // PCIe/USB 直通管理操作联动：PCIe 设备下拉仅 pcie_* 操作可选，USB 设备下拉仅 usb_* 操作可选
   const ptActSel = $("toolForm").querySelector('select[data-param="action"]');
@@ -1340,6 +1313,17 @@ function effectiveExecNode() {
 // belongs_to_node / guest_node / node_agnostic 标记），前端一律据此处理节点联动。
 function paramDecl(name) {
   return ((currentTool && currentTool.params) || []).find((p) => p.name === name);
+}
+
+// 当前表单所选虚机列表：勾选框组取勾选项；select 取 value（多选下拉为逗号分隔，同样拆开）
+function formVmids() {
+  const box = $("toolForm").querySelector('.checkbox-group[data-param="vmid"]');
+  if (box) {
+    return [...box.querySelectorAll('input[type="checkbox"]:checked')]
+      .map((c) => c.value.trim()).filter(Boolean);
+  }
+  const sel = $("toolForm").querySelector('select[data-param="vmid"]');
+  return sel && sel.value ? sel.value.split(",").map((s) => s.trim()).filter(Boolean) : [];
 }
 
 // 按执行节点过滤后列表为空时的占位项：明确区分"没有虚机"与"不在这个节点上"
@@ -1580,23 +1564,6 @@ async function _fillOptionsFor(el, api, dry) {
         opts = roms.length
           ? roms.map((r) => ({ value: r.name, label: r.name }))
           : [{ value: "", label: "尚未上传 vBIOS ROM（点下方按钮上传）", disabled: true }];
-      } else if (["vgpu_drivers", "vgpu_patches", "vgpu_unlock_libs"].includes(el.dataset.optionsFrom)) {
-        // vGPU 宿主机物料（共享存储 vgpu-drivers/，接口返回全量后按后缀归类）：
-        //   vgpu_drivers=.run 宿主机驱动 / vgpu_patches=.patch 解锁补丁 / vgpu_unlock_libs=.so 解锁库
-        const spec = {
-          vgpu_drivers: { ext: ".run", empty: "尚未上传宿主机驱动（请到顶部「传输中心」上传 .run）" },
-          vgpu_patches: { ext: ".patch", empty: "尚未上传解锁补丁（请到顶部「传输中心」上传 .patch）" },
-          vgpu_unlock_libs: { ext: ".so", empty: "尚未上传解锁库（请到顶部「传输中心」上传 .so）" },
-        }[el.dataset.optionsFrom];
-        const all = await api("/vgpu/materials");
-        const list = all.filter((d) => (d.name || "").toLowerCase().endsWith(spec.ext));
-        opts = list.length
-          ? list.map((d) => {
-              const meta = [d.version ? `版本 ${d.version}` : "", d.size ? fmtBytes(d.size) : ""]
-                .filter(Boolean).join("，");
-              return { value: d.name, label: `${d.name}${meta ? `（${meta}）` : ""}` };
-            })
-          : [{ value: "", label: spec.empty, disabled: true }];
       } else if (el.dataset.optionsFrom === "docker_versions") {
         // Docker 引擎稳定版清单（docker-ce 仓库静态目录，与发行版无关；服务端缓存 6h）
         const dvs = await api("/docker-versions");
@@ -1685,10 +1652,7 @@ async function _fillOptionsFor(el, api, dry) {
       } else if (el.dataset.optionsFrom === "cloud_images") {
         // 已就绪的云镜像列表（与磁盘导入共用导入目录，供云镜像装机下拉选择），value 同样编码存储
         // 同时记录每个镜像的虚拟磁盘大小（vsize），供选中后同步更新「系统盘大小」默认项
-        // 「云镜像制作」按操作系统类型分流：linux 工具只列 Linux/未知镜像，windows 工具只列 Windows 镜像
         const q = new URLSearchParams({ kind: "cloud" });
-        if (currentTool && currentTool.id === "windows_cloudimg_build") q.set("os", "windows");
-        else if (currentTool && currentTool.id === "linux_cloudimg_build") q.set("os", "linux");
         const files = await api("/disks/imported?" + q.toString());
         const vmap = {};
         const mmeta = {};
@@ -1708,11 +1672,19 @@ async function _fillOptionsFor(el, api, dry) {
         window.__cloudImageVSize = vmap;
         window.__cloudImageMeta = mmeta;
       } else if (el.dataset.optionsFrom === "vm_disks") {
-        // VM 磁盘列表（随所选 VM 联动）：导入后挂载 / 导出时选择
-        const vmidEl = document.querySelector('#toolForm select[data-param="vmid"]');
-        const vmid = vmidEl ? vmidEl.value : "";
-        if (!vmid) {
+        // VM 磁盘列表（随所选 VM 联动）：导入后挂载 / 导出时选择。
+        // vmid 为勾选框组多选（如磁盘导出）：未选提示先选；勾选多台时无法跨台罗列磁盘，
+        // 仅保留空选项（导出=每台全部磁盘，脚本逐台处理）
+        const vmids = formVmids();
+        const vmid = vmids.length === 1 ? vmids[0] : "";
+        if (!vmids.length) {
           el.innerHTML = `<option value="">（请先选择 VM）</option>`;
+          return;
+        }
+        if (vmids.length > 1) {
+          const tip = (currentTool && currentTool.id === "disk_export")
+            ? "（全部磁盘·多台各自导出）" : "（多台批量：自动按台处理）";
+          el.innerHTML = `<option value="">${tip}</option>`;
           return;
         }
         const g = allGuests.find((x) => String(x.vmid) === vmid);
@@ -1756,42 +1728,6 @@ async function _fillOptionsFor(el, api, dry) {
           label: `${b.name}（模板文件）`,
         }));
         if (!opts.length) opts = [{ value: "", label: "请先到「传输中心」上传虚机模板", disabled: true }];
-      } else if (el.dataset.optionsFrom === "vgpu_gpus" || el.dataset.optionsFrom === "vgpu_types") {
-        // vGPU 分配：mdev 规格是节点级资源，按「所选虚机所在节点」采集（未选虚机时用执行节点）；
-        // 规格下拉再按所选显卡过滤（同节点多张卡时只显示该卡的规格）
-        const vmidEl = document.querySelector('#toolForm select[data-param="vmid"]');
-        const vm = vmidEl && vmidEl.value
-          ? allGuests.find((x) => String(x.vmid) === vmidEl.value) : null;
-        const nodeEl = $("nodeSelect");
-        const node = (vm && vm.node) || (nodeEl ? nodeEl.value : "");
-        const q = node ? "?node=" + encodeURIComponent(node) : "";
-        const gpuEl = document.querySelector('#toolForm select[data-param="gpu"]');
-        if (el.dataset.optionsFrom === "vgpu_gpus") {
-          const gpus = await api("/vgpu/gpus" + q);
-          opts = (gpus || []).map((d) => {
-            const used = d.used_by || [];
-            const pt = used.filter((u) => u.mode === "passthrough");
-            const md = used.filter((u) => u.mode === "mdev");
-            let note = "";
-            if (pt.length) note += `　⚠ 已被物理直通占用（VM ${pt.map((u) => u.vmid).join("、")}），与 vGPU 冲突`;
-            if (md.length) note += `　已分配给 VM ${md.map((u) => u.vmid).join("、")}`;
-            return {
-              value: d.addr,
-              label: `${d.addr} · ${d.desc}（${d.driver ? `驱动 ${d.driver}` : "无驱动"}${d.type_count ? `，可用规格 ${d.type_count} 种` : "，无可用规格 ⚠"}）${note}`,
-              disabled: !d.type_count,
-            };
-          });
-          if (opts.length) opts.unshift({ value: "", label: "（自动：仅一张卡时选用）" });
-        } else {
-          const curGpu = gpuEl ? gpuEl.value : "";
-          const types = await api("/vgpu/types" + q);
-          const list = curGpu ? (types || []).filter((t) => t.parent === curGpu) : (types || []);
-          opts = list.map((t) => ({
-            value: t.id,
-            label: `${t.label}（${t.id}${t.max ? `，最多 ${t.max} 台` : ""}）${curGpu ? "" : ` · ${t.parent}`}`,
-          }));
-          if (opts.length) opts.unshift({ value: "", label: "（请选择 vGPU 规格）" });
-        }
       } else if (el.dataset.optionsFrom === "lxc_templates") {
         // 创建 LXC 容器：已下载的 CT 模板来源（value 形如 <storage>::<name>）
         // 只列共享存储 pvewebtools 的模板（集群各节点建机均可用），其它存储的模板不关注
@@ -1801,12 +1737,6 @@ async function _fillOptionsFor(el, api, dry) {
           label: `${t.name}${t.size != null ? `（${fmtBytes(t.size)}）` : ""}`,
         }));
         if (!opts.length) opts = [{ value: "", label: "请先到「传输中心」获取 LXC 模板", disabled: true }];
-      } else if (el.dataset.optionsFrom === "community_scripts") {
-        // 社区脚本(dev)：本地 community-scripts 仓库里可一键安装的应用脚本（value=脚本名，不含 .sh）
-        // group 是官网分类名（后端按官网 script_categories 分组并排好序）→ 下方渲染成 <optgroup>
-        const list = await api("/community-scripts/list");
-        opts = (list || []).map((s) => ({ value: s.value, label: s.label, group: s.group }));
-        if (!opts.length) opts = [{ value: "", label: "仓库未同步：请先执行「同步/更新本地仓库」", disabled: true }];
       }
     } catch (e) {
       loadErr = e;
@@ -1973,6 +1903,23 @@ function multiSelectToggle(name, selectAll) {
   });
 }
 
+// 选框组已选计数：勾选变化后刷新「已选 N 台」提示（列表超高内滚时仍能看清勾了多少）
+function updateCheckboxCount(grp) {
+  if (!grp) return;
+  const n = grp.querySelectorAll('input[type="checkbox"]:checked').length;
+  const row = grp.closest(".form-row");
+  const tip = row && row.querySelector(".checkbox-count");
+  if (tip) tip.textContent = n ? `已选 ${n} 台` : "可多选";
+}
+
+// 手动勾选：change 冒泡到 document 统一刷新计数（全选/清空走 checkboxToggleAll 内的直接调用）
+document.addEventListener("change", (e) => {
+  const cb = e.target;
+  if (cb && cb.type === "checkbox" && cb.closest(".checkbox-group")) {
+    updateCheckboxCount(cb.closest(".checkbox-group"));
+  }
+});
+
 // 选框组（如批量删除的虚机多选）：一键全选/清空；仅切换可选（未禁用）的选框
 function checkboxToggleAll(name, selectAll) {
   const grp = $("toolForm").querySelector(`.checkbox-group[data-param="${name}"]`);
@@ -1980,6 +1927,9 @@ function checkboxToggleAll(name, selectAll) {
   grp.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
     if (!cb.disabled) cb.checked = !!selectAll;
   });
+  updateCheckboxCount(grp);
+  // 程序化赋值不触发 change：手动派发一次，让依赖所选虚机的联动（快照列表/节点同步/磁盘下拉等）跟上
+  grp.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 // 模板快速建机：用户填了编号则预填「系统-编号」；编号留空时由后端按 系统-VMID 生成（避免与真实分配编号错位）
@@ -2176,22 +2126,25 @@ let currentSnapshots = [];
 async function loadSnapshotList() {
   const el = $("snapshotList");
   el.innerHTML = '<div class="sched-empty">加载中…</div>';
-  const vmidSel = $("toolForm").querySelector('select[data-param="vmid"]');
-  const vmid = vmidSel ? vmidSel.value : "";
-  if (!vmid) {
-    el.innerHTML = '<div class="sched-empty">请先选择虚机（VMID）</div>';
+  const vmids = formVmids();
+  if (!vmids.length) {
+    el.innerHTML = '<div class="sched-empty">请先勾选虚机（VMID）</div>';
     currentSnapshots = [];
     return;
   }
-  try {
-    currentSnapshots = await api(`/guests/${encodeURIComponent(vmid)}/snapshots`);
-  } catch (e) {
-    currentSnapshots = [];
-  }
-  renderSnapshotList();
+  // 逐台拉取快照（后端接口按单台取数）；多台时行首标注 VMID 便于区分
+  const results = await Promise.all(vmids.map(async (vmid) => {
+    try {
+      return { vmid: String(vmid), snaps: await api(`/guests/${encodeURIComponent(vmid)}/snapshots`) || [] };
+    } catch (e) {
+      return { vmid: String(vmid), snaps: [] };
+    }
+  }));
+  currentSnapshots = results.flatMap((r) => r.snaps.map((s) => ({ ...s, vmid: r.vmid })));
+  renderSnapshotList(results.length > 1);
 }
 
-function renderSnapshotList() {
+function renderSnapshotList(multi) {
   const el = $("snapshotList");
   if (!currentSnapshots.length) {
     el.innerHTML = '<div class="sched-empty">暂无快照（可在下方创建）</div>';
@@ -2199,24 +2152,25 @@ function renderSnapshotList() {
   }
   el.innerHTML = '<div class="sched-list">' + currentSnapshots.map((s) => `
     <div class="sched-row">
+      ${multi ? `<span class="muted">VM ${escapeHtml(s.vmid)}</span>` : ""}
       <span class="iso-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
       <span class="muted">${s.description ? escapeHtml(s.description) : ""}</span>
       <span style="flex:1"></span>
-      <button class="btn btn-sm" onclick="snapshotAction('rollback',${jsStr(s.name)})">回滚</button>
-      <button class="btn btn-sm danger" onclick="snapshotAction('del',${jsStr(s.name)})">删除</button>
+      <button class="btn btn-sm" onclick="snapshotAction('rollback',${jsStr(s.name)},${jsStr(s.vmid)})">回滚</button>
+      <button class="btn btn-sm danger" onclick="snapshotAction('del',${jsStr(s.name)},${jsStr(s.vmid)})">删除</button>
     </div>`).join("") + "</div>";
 }
 
 // 快照列表按钮：直接触发回滚/删除操作（绕过表单直接提交 API）
 let currentSnapshotAction = "take";
 
-async function snapshotAction(action, snapname) {
-  const vmidSel = $("toolForm").querySelector('select[data-param="vmid"]');
-  const vmid = vmidSel ? vmidSel.value : "";
-  if (!vmid) return toast("请先选择虚机/容器（VMID）", true);
+async function snapshotAction(action, snapname, vmid) {
+  // 快照列表行自带 vmid（多台勾选时逐行触发）；未传时回退当前所选（单台）
+  vmid = vmid || formVmids()[0] || "";
+  if (!vmid) return toast("请先勾选虚机/容器（VMID）", true);
   const warn = action === "rollback"
-    ? `确定回滚到快照「${snapname}」吗？当前状态将被丢弃，运行中的虚机会重启。`
-    : `确定删除快照「${snapname}」吗？此操作不可恢复。`;
+    ? `确定将虚机 ${vmid} 回滚到快照「${snapname}」吗？当前状态将被丢弃，运行中的虚机会重启。`
+    : `确定删除虚机 ${vmid} 的快照「${snapname}」吗？此操作不可恢复。`;
   if (!(await appConfirm(warn, { danger: true }))) return;
   // 直接构造 payload 提交，避免走 runTool 的确认词/表单收集流程
   const nodeSel = $("nodeSelect");

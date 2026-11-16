@@ -1,4 +1,4 @@
-"""工具箱与任务队列域路由（结构重构 M2/T2.6 第八批）。
+"""工具箱与任务队列域路由。
 
 覆盖工具清单与运行（``tools``、``tools/<tool_id>/run``）以及任务队列（``jobs``、
 ``jobs/<job_id>``、``jobs/<job_id>/stream``、``jobs/<job_id>/kill``、``jobs/clear``、

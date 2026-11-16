@@ -6,7 +6,7 @@
 //   js/ui.js     展示层：DOM 辅助 / 格式化 / 阈值 / 转义 / Toast / 应用内确认框
 //   js/api.js    请求层：统一超时 + 有限重试 + 错误清洗
 //   js/overview.js  概览页：节点卡片 / 虚机容器列表 / 分页与筛选 / 批量操作 / 数据加载
-//   js/settings.js  系统设置：设置弹窗 / 系统升级
+//   js/settings.js  系统设置：设置弹窗（帮助手册） / 版本档位
 //   js/toolbox.js   工具箱：工具执行弹窗 / 定时开关机 / 虚机快照
 //   js/transfer.js  传输中心：上传 / 云镜像 / LXC 模板 / 存储内容 / 缓存加速 / 可搜索下拉
 //   js/passthrough.js  直通工具：IOMMU 重启提示 / 使直通生效
@@ -36,24 +36,6 @@ async function loadToolbox() {
      </div>`).join("");
   try {
     toolboxData = await api("/tools");
-    // 兜底判档：工具清单里出现「高级玩法」分类就说明运行档位是 pro
-    // （/api/edition 偶发失败时，带 data-edition 的元素不至于一直藏在默认隐藏态）
-    if ((toolboxData.categories || []).some((c) => c.id === "advanced")) {
-      applyEditionVisibility("pro");
-    }
-    // 合成入口「制作云镜像」：仅当后端确实提供了底层子工具时才展示（源码模式/开发版才有；
-    // 编译版 lite/pro 不含底层工具，避免渲染出点不动的死按钮）。底层工具 hidden，仅经此合成入口可见。
-    if (toolboxData.tools.some((t) => t.id === "linux_cloudimg_build")) {
-      toolboxData.tools.push({
-        id: "cloudimg_build",
-        name: "制作云镜像",
-        desc: "把通用 VM 镜像（Linux 官方 qcow2，或你人工装好系统的 Linux / Windows 磁盘）制作成标准云镜像。先选择操作系统类型：",
-        category: "dev",
-        risk: "low",
-        order: 2,
-        composite: true,
-      });
-    }
     // categories 为空（后端异常/配置为空）时兜底，避免 categories[0].id 抛 TypeError，
     // 导致骨架屏残留、工具箱无法恢复
     if (!toolboxData.categories || !toolboxData.categories.length) {
@@ -110,47 +92,26 @@ function selectCat(id) {
   renderToolbox();
 }
 
-// 运行期工具档位（lite / pro）：来自 /api/edition 的 runtime 字段。
-// 注意不能用编译标记 edition 判断档位 —— 源码运行没有编译标记（显示为「源码版」），
-// 但它是按 pro 工具集注册的，用 edition 判断会把源码运行误判成 lite。
-let editionRuntime = "";
-
-// 按运行档位显隐带 data-edition 标记的元素（帮助手册的 Pro 段落、传输中心的 vGPU 物料类型）。
-// 标记为「当前档位不匹配」的一律隐藏；标记与档位一致才显示，因此这些元素在 HTML 里默认带 hidden
-function applyEditionVisibility(runtime) {
-  editionRuntime = String(runtime || "").toLowerCase();
-  document.querySelectorAll("[data-edition]").forEach((el) => {
-    el.classList.toggle("hidden", el.dataset.edition !== editionRuntime);
-  });
-}
-
-// 「系统设置」弹窗标题右侧的版本胶囊（描边风格）：编译产物显示 LITE / PRO，
-// 源码运行（无 edition.py 编译标记）显示「源码版」——与「系统升级」页的「版本形态」同一套用词，
-// 避免两处说法不一致；带上版本号（如 LITE 1.2.0），方便一眼确认当前跑的是哪一版
-function showEditionBadge(edition, version = "") {
+// 「系统设置」弹窗标题右侧的版本胶囊（描边风格）：开源版统一显示「开源版 <版本号>」
+function showEditionBadge(version = "") {
   const el = $("editionBadge");
   if (!el) return;
-  // build.sh 写入的是 lite / pro（大小写随命令行），统一小写后比对，异常值一律按源码版处理
-  const ed = String(edition || "").toLowerCase();
-  const name = ed === "pro" ? "PRO" : (ed === "lite" ? "LITE" : "源码版");
   // 「未知」是后端取不到版本号时的兜底文案，拼进胶囊只是噪声，此时只显示形态
   const ver = version && version !== "未知" ? version : "";
-  el.textContent = ver ? `${name} ${ver}` : name;
+  el.textContent = ver ? `开源版 ${ver}` : "开源版";
   el.style.display = "";
 }
 
 // 加载版本胶囊：轻量 /api/edition，不依赖工具箱 tab 的 /tools 重型接口；
-// 弹窗未打开时也先取好，打开即可见。源码版同样展示（版本号回退读包内 VERSION 文件）
+// 弹窗未打开时也先取好，打开即可见（版本号回退读包内 VERSION 文件）
 async function loadEditionBadge() {
   try {
     const data = await api("/edition");
-    showEditionBadge(data.edition, data.version || "");
-    applyEditionVisibility(data.runtime || data.edition || "");
-    // 同一份结果顺带决定「+ 加入节点」入口（单机版隐藏，见 settings.js applyJoinEntryState）
+    showEditionBadge(data.version || "");
+    // 同一份结果顺带决定「+ 加入节点」入口（见 settings.js applyJoinEntryState）
     if (typeof setEditionInfo === "function") setEditionInfo(data);
   } catch (e) {
-    // 获取失败不影响主流程，胶囊保持隐藏即可；带 data-edition 的元素维持 HTML 里的默认隐藏，
-    // 等工具清单加载时的兜底再决定（见 loadToolbox）
+    // 获取失败不影响主流程，胶囊保持隐藏即可
   }
 }
 
@@ -290,16 +251,13 @@ async function runApp(info) {
   $("modal").addEventListener("click", (e) => {
     if (e.target === $("modal")) $("modal").classList.add("hidden");
   });
-  // 系统设置弹窗：关闭按钮 / 点遮罩关闭 / 分区切换（系统升级 / 帮助手册）
+  // 系统设置弹窗：关闭按钮 / 点遮罩关闭 / 分区切换（帮助手册）
   $("settingsClose").addEventListener("click", closeSettings);
   $("settingsModal").addEventListener("click", (e) => {
     if (e.target === $("settingsModal")) closeSettings();
   });
   document.querySelectorAll("#settingsModal .stab").forEach((b) =>
     b.addEventListener("click", () => switchSettingsPane(b.dataset.pane)));
-  // 系统升级分区：上传按钮（其余交互由渲染出的按钮 onclick 触发）
-  const upgradeBtn = $("upgradeUploadBtn");
-  if (upgradeBtn) upgradeBtn.addEventListener("click", uploadUpgrade);
 
   // 工具箱
   document.querySelectorAll(".tab").forEach((t) =>
@@ -348,7 +306,6 @@ async function runApp(info) {
   });
 
   loadEditionBadge();    // 首屏预取版本胶囊（轻量接口，不等 /tools；设置弹窗打开即可见）
-
   const logoutBtn = $("btnLogout");
   if (logoutBtn) {
     // 仅开启登录门禁（enabled）时显示退出按钮；--no-auth 下无意义

@@ -1,6 +1,5 @@
-# PVE WebTools 内嵌 bash 片段（COMMON_HELPERS / CLOUDIMG_COMMON / *_SCRIPT 等）
+# PVE WebTools 内嵌 bash 片段（COMMON_HELPERS / *_SCRIPT 等）
 # 经由 Python 拼接后运行，shellcheck 单文件视角的误报项在此禁用。
-# 基线参考 community-scripts/ProxmoxVE（同生态、大规模验证）。
 # 后续可逐步收紧：先放开 SC2086/SC2046 等分词类，待脚本风格统一后再启用。
 disable=SC2034   # 片段级变量，供拼接后整体使用，单文件视角视为未使用
 disable=SC1091   # 片段拼接运行，不 source 外部文件

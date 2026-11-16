@@ -1,4 +1,4 @@
-// 传输中心（M3/T3.4 第 4 块，从 app.js 抽出）：上传文件 / 获取云镜像 / 获取 LXC 模板 / 存储内容 /
+// 传输中心：上传文件 / 获取云镜像 / 获取 LXC 模板 / 存储内容 /
 // 缓存加速 五个子模块，以及它们共用的可搜索下拉（SearchSelect）与存储管理表单、分片上传参数。
 //
 // 依赖方向：调用 js/ui.js（$、格式化、转义、Toast、appConfirm）与 js/api.js（api/cachedApi）；
@@ -129,10 +129,9 @@ async function tcLoadContentStorages() {
 }
 
 // 存储内容：可按类型进行下载 / 删除的内容集合
-const SC_DL_TYPES = new Set(["vztmpl", "backup", "snippets", "import", "vbios", "vgpu"]);
-// vbios 不在此列：它的删除要走 DELETE /api/vbios（连带清理节点侧副本），见 tcDeleteVbios；
-// vgpu（vGPU 宿主机物料）只存在共享目录、无节点侧副本，走通用删除即可
-const SC_DEL_TYPES = new Set(["vztmpl", "backup", "snippets", "import", "vgpu"]);
+const SC_DL_TYPES = new Set(["vztmpl", "backup", "snippets", "import", "vbios"]);
+// vbios 不在此列：它的删除要走 DELETE /api/vbios（连带清理节点侧副本），见 tcDeleteVbios
+const SC_DEL_TYPES = new Set(["vztmpl", "backup", "snippets", "import"]);
 // 不在本面板渲染的分组：images/rootdir 为只读保护（误删会丢 VM 盘）；iso 本工具不上传也不处理，一并隐藏
 const SC_HIDDEN_TYPES = new Set(["images", "rootdir", "iso"]);
 // 支持在存储之间移动的内容类型（目标目录按 PVE 约定保持不变；images/rootdir 涉及 VM 命名与引用，不支持）
@@ -197,9 +196,9 @@ async function tcLoadStorageContent() {
 
 function renderStorageContent(items) {
   if (!Array.isArray(items) || !items.length) return "";
-  // vbios / vgpu 为项目自管的合成分组（PVE 无此内容类型，仅 pvewebtools 有）
-  const order = ["backup", "vbios", "vgpu", "iso", "vztmpl", "snippets", "images", "rootdir", "import"];
-  const labels = { backup: "虚机模板", vbios: "vBIOS ROM", vgpu: "vGPU 宿主机物料", iso: "ISO 镜像", vztmpl: "容器模板", snippets: "配置片段", images: "磁盘镜像", rootdir: "容器", import: "导入" };
+  // vbios 为项目自管的合成分组（PVE 无此内容类型，仅 pvewebtools 有）
+  const order = ["backup", "vbios", "iso", "vztmpl", "snippets", "images", "rootdir", "import"];
+  const labels = { backup: "虚机模板", vbios: "vBIOS ROM", iso: "ISO 镜像", vztmpl: "容器模板", snippets: "配置片段", images: "磁盘镜像", rootdir: "容器", import: "导入" };
   const groups = {};
   let hasReadOnly = false;
   for (const it of items) {
@@ -690,13 +689,12 @@ const CLOUD_IMAGE_PRESETS_FALLBACK = [
 // storage: 落盘需指定存储；storageFixed: 固定落项目共享存储 pvewebtools；storagePick: 由「目标存储」下拉选择（LXC 模板）
 const TC_UPLOAD_TYPES = {
   // maxSize：单文件上限，须与后端常量一致（MAX_BACKUP_SIZE / MAX_VZTMPL_SIZE / MAX_DISK_SIZE /
-  // MAX_VBIOS_SIZE / MAX_VGPU_SIZE）：选文件时即拦，不必等几 GB 传完才被服务端拒绝
+  // MAX_VBIOS_SIZE）：选文件时即拦，不必等几 GB 传完才被服务端拒绝
   backup: { storage: true,  storageFixed: "pvewebtools", endpoint: "/api/backup/upload", refresh: ["backups", "deploy_sources"], accept: ".vma,.vma.zst,.vma.gz,.vma.lzo", note: "虚机模板", maxSize: 256 * 1024 * 1024 * 1024 },
   lxc:    { storage: true,  storagePick: true, kind: "vztmpl", endpoint: "/api/lxc-template/upload", refresh: ["lxc_templates"], accept: ".tar.gz,.tar.xz,.tar.zst", note: "LXC 容器模板", maxSize: 64 * 1024 * 1024 * 1024 },
   cloud:  { storage: false, endpoint: "/api/disks/upload", kind: "cloud", refresh: ["cloud_images"], accept: ".qcow2,.raw,.img,.vmdk,.vhdx,.vdi,.vpc,.xz,.gz,.zst", note: "云镜像（含 cloud-init）", maxSize: 256 * 1024 * 1024 * 1024 },
   disk:   { storage: false, endpoint: "/api/disks/upload", kind: "disk",  refresh: ["disk_upload"],  accept: ".qcow2,.raw,.img,.vmdk,.vhdx,.vdi,.vpc,.xz,.gz,.zst", note: "磁盘镜像（普通磁盘，如 openEuler）", maxSize: 256 * 1024 * 1024 * 1024 },
   vbios:  { storage: false, endpoint: "/api/vbios/upload",    refresh: ["vbios_roms"],                accept: ".rom,.bin",                              note: "vBIOS ROM", maxSize: 16 * 1024 * 1024 },
-  vgpu:   { storage: false, endpoint: "/api/vgpu/upload",     kind: "vgpu", refresh: ["vgpu_drivers", "vgpu_patches", "vgpu_unlock_libs"], accept: ".run,.patch,.so", note: "vGPU 宿主机物料", maxSize: 2 * 1024 * 1024 * 1024 },
 };
 
 // 上传目标存储（仅 LXC 模板类型需要）：复用「获取 LXC 模板」的存储列表，只列支持 vztmpl 内容的共享存储

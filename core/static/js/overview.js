@@ -1,4 +1,4 @@
-// 概览页（M3/T3.4 第 1 块，从 app.js 抽出）：节点卡片 / 虚机容器列表 / 分页与筛选 / 批量操作 / 数据加载。
+// 概览页：节点卡片 / 虚机容器列表 / 分页与筛选 / 批量操作 / 数据加载。
 //
 // 依赖方向：调用 js/ui.js（$、格式化、转义、Toast）与 js/api.js（api/cachedApi），读写
 // js/state.js 的全局状态；由 app.js 的初始化流程与 index.html 的内联 onclick 调用。
@@ -622,16 +622,10 @@ function renderNodeMgmt(nodes) {
     const memPct = fmtPct(memRatio);
     const coreLabel = n.cpu_cores ? `${n.cpu_cores} 核` : `${n.maxcpu} 核`;
     const cpuSpec = n.cpu_threads ? `${coreLabel} / ${n.cpu_threads} 线程` : coreLabel;
-    // 共享存储角色（后端 /api/nodes 标注）：server=导出端(NFS 服务端)，client=挂载端，dir=未启用 NFS
-    const role = n.storage_role || "client";
+    // 共享存储修复统一放工具栏（一键修所有节点），节点行不再逐台放按钮，详见 fixAllNodeStorage()
     // 占位条目：pvesh 没返回该节点（集群降级时 pmxcfs 成员视图不同步），仅由 corosync 成员表补出。
     // 此时数据全为 0、重启/修复必然失败，故只显示节点名与状态，并说明原因。
     const ph = !!n.placeholder;
-    const fixBtn = (ph || role === "dir")
-      ? ""
-      : role === "server"
-        ? `<button class="btn btn-sm btn-nfs-fix" onclick="fixNfsServer(${jsStr(n.node)})">修复 NFS 服务端</button>`
-        : `<button class="btn btn-sm btn-nfs-fix" onclick="fixNodeStorage(${jsStr(n.node)})">修复 NFS 客户端</button>`;
     // 离线节点行给出「临时取得仲裁」：把该节点票数排除出仲裁计算（非隔离/剔除节点本身）；
     // 服务端强校验放行条件，且仅下调运行时票数，不改配置、不删节点、不影响虚机。
     const isOffline = offlineSet.has(n.node) || n.status === "offline";
@@ -643,8 +637,18 @@ function renderNodeMgmt(nodes) {
                        : `PVE ${escapeHtml(n.pveversion || "—")}`;
     const cpuCell = ph ? "" : `CPU ${cpuPct}%<small class="muted"> · ${cpuSpec}</small>`;
     const memCell = ph ? "" : `内存 ${memPct}%<small class="muted"> · ${fmtBytes(n.mem)}/${fmtBytes(n.maxmem)}</small>`;
-    const rebootBtn = ph ? ""
-      : `<button class="btn btn-sm danger" onclick="rebootNodeFromMgmt(${jsStr(n.node)})">重启节点</button>`;
+    // 节点级动作统一收进「操作」下拉：离线 / 占位条目状态未知，SSH 类动作必然失败，不给下拉；
+    // 离线行仍只保留「临时取得仲裁」。
+    const opsMenu = (ph || isOffline) ? "" : `
+      <details class="node-ops">
+        <summary class="btn btn-sm">操作 ▾</summary>
+        <div class="node-ops-menu">
+          <button class="btn btn-sm" onclick="rebootNodeFromMgmt(${jsStr(n.node)})">重启节点</button>
+          <button class="btn btn-sm" onclick="restartPveServices(${jsStr(n.node)})">重启 PVE 服务</button>
+          <button class="btn btn-sm" onclick="diagNode(${jsStr(n.node)})">一键诊断</button>
+          <button class="btn btn-sm danger" onclick="shutdownNodeFromMgmt(${jsStr(n.node)})">关机</button>
+        </div>
+      </details>`;
     return `
     <div class="card node-card node-row">
       <span class="nc-name"><span class="dot ${n.status}"></span>${escapeHtml(n.node)}</span>
@@ -654,8 +658,7 @@ function renderNodeMgmt(nodes) {
       <span class="nc-mem">${memCell}</span>
       <span class="node-actions">
         ${quarantineBtn}
-        ${fixBtn}
-        ${rebootBtn}
+        ${opsMenu}
       </span>
     </div>`;
   }).join("");
@@ -670,10 +673,9 @@ async function degradeQuorum(node) {
   const others = node ? offline.filter((x) => x !== node) : offline;
   const names = [node, ...others].filter(Boolean).join("、") || "不可达节点";
   const ok = await appConfirm(
-    `将把离线节点「${names}」临时排除出仲裁（预期票数降为在线节点数），使本机恢复可写。\n\n` +
-    `· 只改运行时票数：不改集群配置、不删节点、不影响虚机\n` +
-    `· corosync / pve-cluster 重启后自动失效；节点恢复后请点「恢复正常仲裁」\n` +
-    `· 前提：这些节点是真实宕机，而非网络分区`,
+    `临时把离线节点「${names}」排除出仲裁，票数降为在线节点数，本机恢复可写。\n` +
+    `仅改运行时票数（不改配置、不删节点、不影响虚机），服务重启后失效；节点恢复后点「恢复正常仲裁」。\n` +
+    `前提：节点真实宕机，非网络分区（否则可能两侧双写）。`,
     { title: "临时取得仲裁", okText: "确认执行", danger: true, requireText: "临时取得仲裁" });
   if (!ok) return;
   try {
@@ -791,8 +793,8 @@ async function joinCluster() {
   if (!new_host || !new_password)
     return toast("请填写：新节点 IP、新节点 root 密码", true);
   if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(new_host) && new_host.indexOf(":") < 0)
- return toast("新节点地址请填写 IP（不支持主机名）", true);
- const btn = $("jcOk");
+    return toast("新节点地址请填写 IP（不支持主机名）", true);
+  const btn = $("jcOk");
   btn.disabled = true; btn.textContent = "加入中…";
   try {
     const data = await api("/cluster/join", "POST", { new_host, new_password });
@@ -803,67 +805,203 @@ async function joinCluster() {
     smHideModal();
     loadNodeMgmt(true);
   } catch (e) {
-    const msg = String(e.message || e);
-    const m = msg.match(/[0-9a-fA-F]{64}/);
-    if (m) showPendingFingerprint(m[0]);
-    else toast("加入失败: " + msg, true);
+    toast("加入失败: " + (e.message || e), true);
     btn.disabled = false; btn.textContent = "加入集群";
   }
 }
 
-// 未授权节点：弹出「待授权指纹」+ 一键复制，方便客户发给授权方
-function showPendingFingerprint(fp) {
-  $("modalTitle").textContent = "该机器尚未授权";
-  $("modalBody").innerHTML = `<div class="sm-form">
-    <p class="muted u-para" >这台机器的硬件指纹还没被授权。请把下面的指纹发给授权方；拿到授权码后，到右上角「<b>⚙ 设置 → 授权</b>」里上传，即可授权该机器。</p>
-    <div class="tc-row"><label>待授权指纹（64 字符 hex）</label>
-      <textarea id="pfFp" rows="2" readonly style="font-family:ui-monospace,Menlo,Consolas,monospace;width:100%">${escapeHtml(fp)}</textarea>
-    </div>
-    <div class="tc-row tc-actions u-justify-end" >
-      <button type="button" class="btn" onclick="smHideModal()">关闭</button>
-      <button type="button" class="btn run" id="pfCopy">一键复制指纹</button>
-    </div>
-  </div>`;
-  smShowModal();
-  $("pfCopy").onclick = () => {
-    const ta = $("pfFp");
-    try { ta.select(); document.execCommand("copy"); toast("指纹已复制，请发给授权方"); }
-    catch (err) { toast("复制失败，请手动选择复制", true); }
-  };
-}
-
-// 修复NFS客户端：对已加入集群的挂载端节点重跑挂 NFS + 铺 vBIOS 软链（免密 SSH，幂等）
-async function fixNodeStorage(node) {
-  if (!(await appConfirm(`确定对节点 ${node} 重新接入共享存储（挂 NFS + 铺 vBIOS 软链）？`)))
-    return;
+// 一键修复所有节点的共享存储：后端按「导出端优先」逐台执行并返回逐台结果。
+// 装 nfs-kernel-server / 逐台 SSH 可能持续数分钟，故单独放宽超时并禁用重试，
+// 避免 POST 重发导致修复脚本重复执行。
+async function fixAllNodeStorage() {
+  const btn = $("btnFixStorageAll");
+  // 与其它节点级异步动作互斥：它们共用同一个结果条，并行会互相覆盖输出
+  if (!btn || btn.dataset.busy === "1" || nodeActionBusy) return;
+  const ok = await appConfirm(
+    "将一键修复集群内所有节点的共享存储：先修 NFS 导出端，再逐台重挂客户端并铺 vBIOS 软链；" +
+    "离线 / 状态未知的节点自动跳过。\n\n" +
+    "这会重挂各节点的共享存储，过程可能持续数分钟，期间请保持页面打开。",
+    { title: "一键修复共享存储", okText: "开始修复" });
+  if (!ok) return;
+  const label = btn.textContent;
+  btn.dataset.busy = "1";
+  nodeActionBusy = true;
+  btn.disabled = true;
+  btn.textContent = "修复中…";
   try {
-    const data = await api(`/nodes/${encodeURIComponent(node)}/storage-fix`, "POST", {});
-    const isErr = !data.ok;
-    toast(isErr ? `共享存储接入未完成：${data.msg}` : `已为 ${data.node} 接入共享存储`, isErr);
-    if (!isErr) loadNodeMgmt(true);
+    const data = await api("/nodes/storage-fix-all", "POST", {}, { timeout: 1800000, retries: 0 });
+    renderStorageFixResult(data);
+    toast(data.msg || "共享存储修复完成", !data.ok);
+    loadNodeMgmt(true);
   } catch (e) {
-    toast("修复失败: " + e.message, true);
+    toast("一键修复失败: " + e.message, true);
+  } finally {
+    nodeActionBusy = false;
+    btn.disabled = false;
+    btn.textContent = label;
+    delete btn.dataset.busy;
   }
 }
 
-// 修复 NFS 服务端：在共享存储导出端节点上重跑服务端配置
-// （装 nfs-kernel-server + 写 /etc/exports + exportfs 重新导出 + 起服务），供客户端重新挂载
-async function fixNfsServer(node) {
-  if (!(await appConfirm(`确定对节点 ${node} 重跑 NFS 服务端导出（安装/启动 nfs-kernel-server + 写入 /etc/exports + 重新导出）？`)))
-    return;
+// ---- 节点行「操作」下拉与节点级动作 ----
+// 点空白处 / 其它行时收起菜单；各动作开始前也会显式收起，弹确认框时不留一个展开的下拉
+document.addEventListener("click", (e) => {
+  document.querySelectorAll("details.node-ops[open]").forEach((d) => {
+    if (!d.contains(e.target)) d.open = false;
+  });
+});
+
+function closeNodeOps() {
+  document.querySelectorAll("details.node-ops[open]").forEach((d) => { d.open = false; });
+}
+
+// 同一时刻只允许一个节点级异步动作（重启服务 / 诊断），避免连点提交一堆重复 job
+let nodeActionBusy = false;
+
+// 在指定节点上跑工具箱工具：本机留空走本地执行，其余节点由后端解析为 SSH 目标
+async function runNodeTool(node, toolId, params) {
+  const payload = { params };
+  if (node !== localNodeName()) payload.node = node;
+  return api(`/tools/${toolId}/run`, "POST", payload);
+}
+
+// 轮询任务快照直到结束（诊断 / 服务重启是异步 job）；超时不阻断，提示去执行日志看完整输出
+async function waitNodeJob(jobId, timeoutMs = 120000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snap = await api(`/jobs/${encodeURIComponent(jobId)}?offset=0`);
+    if (snap.status && snap.status !== "running") return snap;
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+  return { status: "timeout", lines: ["等待执行结果超时，请到「执行日志」查看完整输出"] };
+}
+
+function nodeJobLog(lines, limit = 30) {
+  return `<pre class="node-action-log">${escapeHtml((lines || []).slice(-limit).join("\n") || "（无输出）")}</pre>`;
+}
+
+// 节点列表上方的结果条：一键修复 / 重启服务 / 一键诊断共用（复用仲裁提示条样式）
+function showNodeActionResult(title, rows, ok) {
+  const el = $("nodeActionResult");
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.classList.toggle("alert", !ok);
+  el.innerHTML = `<div class="qb-main"><b>${escapeHtml(title)}</b></div>${rows.map((r) => `<div class="qb-reason">${r}</div>`).join("")}
+    <div class="qb-act"><button class="btn btn-sm" onclick="hideNodeActionResult()">关闭</button></div>`;
+}
+
+function hideNodeActionResult() {
+  const el = $("nodeActionResult");
+  if (el) el.classList.add("hidden");
+}
+
+// 一键修复共享存储的逐台结果：失败标红，跳过的节点单独说明
+function renderStorageFixResult(data) {
+  const rows = (data.results || []).map((r) => {
+    const role = r.role === "server" ? "导出端" : "客户端";
+    const mark = r.ok ? "✓" : "✗";
+    const cls = r.ok ? "u-ok-text" : "u-err-msg";
+    return `<span class="${cls}">${mark} ${escapeHtml(r.node)}（${role}）：${escapeHtml(r.msg || (r.ok ? "修复完成" : "修复失败"))}</span>`;
+  });
+  if ((data.skipped || []).length) {
+    rows.push(`已跳过离线 / 状态未知节点：${escapeHtml(data.skipped.join("、"))}`);
+  }
+  showNodeActionResult(data.msg || "共享存储修复完成", rows, data.ok);
+}
+
+// 重启 PVE 服务：复用工具箱「PVE 服务诊断」的 restart 动作，只重启核心服务、不重启整机
+async function restartPveServices(node) {
+  closeNodeOps();
+  if (nodeActionBusy) return;
+  const isLocal = node === localNodeName();
+  const ok = await appConfirm(
+    `将重启节点 ${node} 的 PVE 核心服务（pve-cluster / pvedaemon / pvestatd / pve-firewall / pveproxy）。\n\n` +
+    (isLocal
+      ? "⚠ 这是控制机：WebUI 与工具箱会短暂中断数秒，期间页面可能失联；不会重启整机，虚拟机不受影响。"
+      : "不会重启整机，虚拟机不受影响；该节点 WebUI 可能短暂中断。"),
+    { title: "重启 PVE 服务", okText: "确认重启" });
+  if (!ok) return;
+  nodeActionBusy = true;
   try {
-    const data = await api(`/nodes/${encodeURIComponent(node)}/nfs-server-fix`, "POST", {});
-    const isErr = !data.ok;
-    toast(isErr ? `NFS 服务端修复未完成：${data.msg}` : `已完成 ${data.node} 的 NFS 服务端导出`, isErr);
-    if (!isErr) loadNodeMgmt(true);
+    const { job_id } = await runNodeTool(node, "svc_diag", { action: "restart" });
+    toast(`已提交 ${node} 的 PVE 服务重启任务，正在等待结果…`);
+    showNodeActionResult(`PVE 服务重启 · ${node}`, ["任务执行中，完成后在此显示输出…"], true);
+    const snap = await waitNodeJob(job_id);
+    showNodeActionResult(`PVE 服务重启 · ${node}`, [nodeJobLog(snap.lines, 40)], snap.status === "success");
   } catch (e) {
-    toast("修复失败: " + e.message, true);
+    toast("重启 PVE 服务失败: " + e.message, true);
+  } finally {
+    nodeActionBusy = false;
+  }
+}
+
+// 一键诊断：四项只读检查（服务状态 / 启动状态 / 错误日志 / 网络诊断），不改任何配置
+const NODE_DIAG_TOOLS = [
+  { id: "svc_diag", name: "PVE 服务状态", params: { action: "status" } },
+  { id: "boot_check", name: "启动状态检查", params: {} },
+  { id: "log_check", name: "错误日志速查", params: {} },
+  { id: "net_diagnose", name: "网络诊断", params: {} },
+];
+
+async function diagNode(node) {
+  closeNodeOps();
+  if (nodeActionBusy) return;
+  const ok = await appConfirm(
+    `将对节点 ${node} 执行一组只读诊断（服务状态 / 启动状态 / 错误日志 / 网络诊断）。\n\n` +
+    "不会修改任何配置；结果汇总在列表上方，完整输出也可到「执行日志」查看。",
+    { title: "一键诊断", okText: "开始诊断" });
+  if (!ok) return;
+  nodeActionBusy = true;
+  toast(`正在对 ${node} 执行诊断…`);
+  const rows = [];
+  let allOk = true;
+  showNodeActionResult(`一键诊断 · ${node}（0/${NODE_DIAG_TOOLS.length}）`, ["诊断进行中…"], true);
+  try {
+    for (const t of NODE_DIAG_TOOLS) {
+      try {
+        const { job_id } = await runNodeTool(node, t.id, t.params);
+        const snap = await waitNodeJob(job_id);
+        const good = snap.status === "success";
+        allOk = allOk && good;
+        rows.push(`<b>${good ? "✓" : "✗"} ${escapeHtml(t.name)}</b>${nodeJobLog(snap.lines)}`);
+      } catch (e) {
+        allOk = false;
+        rows.push(`<b>✗ ${escapeHtml(t.name)}</b><span class="u-err-msg">提交/执行失败：${escapeHtml(e.message)}</span>`);
+      }
+      // 每完成一项就刷新结果条，避免多项串行期间看起来像卡住
+      showNodeActionResult(`一键诊断 · ${node}（${rows.length}/${NODE_DIAG_TOOLS.length}）`,
+        [...rows, rows.length < NODE_DIAG_TOOLS.length ? "诊断进行中…" : ""].filter(Boolean), allOk);
+    }
+    showNodeActionResult(`一键诊断 · ${node}`, rows, allOk);
+    toast(`一键诊断完成：${node}`, !allOk);
+  } finally {
+    nodeActionBusy = false;
+  }
+}
+
+// 关机：项目没有远程开机（WoL）能力，控制机自身关机后工具箱与 WebUI 都不可用，必须现场开机
+async function shutdownNodeFromMgmt(node) {
+  closeNodeOps();
+  const isLocal = node === localNodeName();
+  const ok = await appConfirm(
+    `即将关闭节点 ${node} 的电源，该节点上所有运行中的虚拟机/容器将被中断！（约 10 秒后关机）\n\n` +
+    (isLocal
+      ? "⚠ 这是控制机：关机后本工具箱与 WebUI 全部不可用，且没有远程开机（WoL）能力，必须到机器现场开机。"
+      : "⚠ 项目没有远程开机（WoL）能力，关机后需到该机器现场开机。"),
+    { title: "关机节点", okText: "确认关机", danger: true, requireText: "关机节点" });
+  if (!ok) return;
+  try {
+    await api(`/nodes/${encodeURIComponent(node)}/shutdown`, "POST", { confirm: "关机节点" });
+    toast(`${node} 将于约 10 秒后关机${isLocal ? "，页面将失联，请到现场开机" : "，需现场开机恢复"}`, false);
+  } catch (e) {
+    toast("关机指令下发失败: " + e.message, true);
   }
 }
 
 // 节点管理页：重启宿主机（直通/内核参数等改动需重启生效时使用）。
 // 与工具箱弹窗内「重启生效」共用 /nodes/<node>/reboot，同样要求手输确认词防误触。
 async function rebootNodeFromMgmt(node) {
+  closeNodeOps();
   // 要求原样输入确认词（应用内确认框），而非一键确认：重启整机影响大，防误触/自动化误点
   const ok = await appConfirm(
     `即将重启节点 ${node}，该节点上所有运行中的虚拟机/容器将被中断！（约 10 秒后重启）`,
@@ -923,11 +1061,11 @@ function migrateBtn(g) {
   return `<button class="btn btn-sm" title="迁移到集群内其它节点" onclick="${call}">迁移</button>`;
 }
 
-// 开机自启单元格：模板只读显示「—」，否则显示「是/不是」开关，点击切换
+// 开机自启单元格：模板只读显示「—」，否则显示滑块开关，点击切换（开=绿、关=灰）
 function onbootCell(g) {
   if (g.template) return '<span class="muted">—</span>';
   const on = g.onboot === 1;
-  return `<button class="onboot-toggle ${on ? "on" : ""}" onclick="toggleOnboot(${jsStr(g.node)},${jsStr(g.type)},${g.vmid},${on ? 0 : 1})" title="点击切换开机自启">${on ? "是" : "不是"}</button>`;
+  return `<span class="onboot-switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" title="${on ? "已开启开机自启（点击关闭）" : "未开启开机自启（点击开启）"}" onclick="toggleOnboot(${jsStr(g.node)},${jsStr(g.type)},${g.vmid},${on ? 0 : 1})"><span class="knob"></span></span>`;
 }
 
 // 切换开机自启：调后端接口，成功后刷新列表

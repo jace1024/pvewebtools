@@ -1,4 +1,8 @@
-"""vBIOS 物料清单与集群同步（M2/T2.6 深化：从 server.py 抽出的物料层）。 管理 /usr/share/kvm 下的 vBIOS ROM 主副本与清单文件，以及向集群各节点同步/删除。 被 transfer（上传/删除/列表）与 node（加机时铺软链）两个域共用，故独立成模块。"""
+"""vBIOS 物料清单与集群同步（物料层）。
+
+管理 /usr/share/kvm 下的 vBIOS ROM 主副本与清单文件，以及向集群各节点同步/删除。
+被 transfer（上传/删除/列表）与 node（加机时铺软链）两个域共用，故独立成模块。
+"""
 
 import os
 import re

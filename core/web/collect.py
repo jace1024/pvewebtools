@@ -4,8 +4,8 @@
 zpool / pvs / findmnt），不 import 任何 core.* 包，也不需要 proxmoxer。
 
 它被 server.py 的 _run_func_on_node 当作源码文本，经 SSH 直接喂给远端节点的
-python3 执行（见 server.py），使「切换执行节点」时，即便远端没装本工具（尤其是编译
-二进制部署）也能拿到真实硬件列表。
+python3 执行（见 server.py），使「切换执行节点」时，即便远端没装本工具也能拿到真实
+硬件列表。
 
 模块内的函数名与 server.py 中同名函数一一对应；此处只保留「远端执行」所需的纯采集
 实现（即 server.py 里 node!=None 分支要跑的逻辑），不含 _run_func_on_node 自身递归、

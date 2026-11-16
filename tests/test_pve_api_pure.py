@@ -1,4 +1,4 @@
-"""M1.3 纯逻辑：pve_api 中无副作用的工具函数（不调用 pvesh）。"""
+"""纯逻辑：pve_api 中无副作用的工具函数（不调用 pvesh）。"""
 
 import pytest
 

@@ -1,4 +1,4 @@
-// 硬件直通的收尾动作（M3/T3.4 第 5 块，从 app.js 抽出）：IOMMU 直通后的节点重启提示，
+// 硬件直通的收尾动作：IOMMU 直通后的节点重启提示，
 // 以及「使直通生效」（关机 → 开机，让 PCIe 直通真正落地）。
 //
 // 依赖方向：调用 js/ui.js（$、转义、Toast、appConfirm）与 js/api.js（api）；由工具箱的工具执行
@@ -157,13 +157,13 @@ async function rebootGuestForPassthrough() {
 const LOG_TAG_LEVEL = {
   "通过": "ok", "成功": "ok", "完成": "ok",
   "失败": "err", "错误": "err", "重要": "err", "必须": "err",
-  "警告": "warn",
+  "警告": "warn", "WARN": "warn",
   "信息": "info", "提示": "info", "备份": "info", "开始": "info", "节点": "info",
 };
 const LOG_TAG_ICON = {
   "通过": "✓", "成功": "✓", "完成": "✓",
   "失败": "✕", "错误": "✕", "重要": "✕", "必须": "✕",
-  "警告": "⚠",
+  "警告": "⚠", "WARN": "⚠",
   "信息": "ℹ", "提示": "ℹ", "备份": "⛁", "开始": "▶", "节点": "◆",
 };
 
@@ -251,7 +251,9 @@ function colorLog(line) {
       const badge = `<span class="log-badge log-${lvl}">${icon}${escapeHtml(tag[1])}</span>`;
       return `${badge} ${highlightInline(escapeHtml(tag[2]))}`;
     }
-    // 未登记标签（如 [guest]）：整行步骤色，但其中的内核参数 / PCI 地址仍要高亮
+    // [*] 常规日志：用中性白（继承日志面板默认文字色），与彩色告警/错误/步骤区分
+    if (tag[1] === "*") return highlightInline(esc);
+    // 其它未登记标签（如 [guest]）：整条步骤色，但其中的内核参数 / PCI 地址仍要高亮
     return `<span class="log-step">${highlightInline(esc)}</span>`;
   }
   // 无前置标签：按关键词整行着色兜底
@@ -298,6 +300,23 @@ async function runTool() {
   });
   // 选框组：把累计的勾选项合并为逗号分隔值（未勾选则保持空串）
   for (const [cn, vals] of Object.entries(checkboxAcc)) params[cn] = vals.join(",");
+  // 一键部署 k8s：架构形态对勾选虚机数量有硬性要求（后端脚本同样拦截，这里先本地即时反馈，免得白跑一趟）
+  if (currentTool && currentTool.id === "vm_install_kubeadm") {
+    const ka = params["arch"] || "allinone";
+    const kc = (params["vmid"] || "").split(",").map((s) => s.trim()).filter(Boolean).length;
+    if (ka === "ha" && kc !== 3) {
+      toast(`高可用集群需恰好勾选 3 台虚机（当前已选 ${kc} 台）`, true);
+      return;
+    }
+    if (ka === "allinone" && kc !== 1) {
+      toast(`单机 All-in-One 仅支持勾选 1 台虚机（当前已选 ${kc} 台）`, true);
+      return;
+    }
+    if (ka === "expand" && kc < 1) {
+      toast(`节点扩容需勾选至少 1 台虚机`, true);
+      return;
+    }
+  }
   // IP 获取方式联动校验：选了「自定义静态 IP」却没填 IP 地址时拦截，避免静默降级为 DHCP
   const ipmSel = document.querySelector("#toolForm select[data-ipmode]");
   if (ipmSel && ipmSel.value === "static") {

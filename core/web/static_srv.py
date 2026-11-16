@@ -1,11 +1,11 @@
-"""首页与静态资源服务（结构重构 M2/T2.3 从 server.py 抽出）。
+"""首页与静态资源服务。
 
 首页读取 + 静态资源 ``?v=<mtime-size>`` 版本注入 + ETag 条件缓存。以 mixin 形式供
 ``server.ApiHandler`` 多继承；本模块自行从 ``core.paths`` 解析 ``STATIC_DIR``，
 **不 import server**（避免循环导入）。``send_head`` / ``_send_static`` 等通用发送逻辑在
 ``http_util.HttpUtilMixin``。
 
-版本注入（M3/T3.5）：不再硬编码 ``app.js`` / ``style.css`` 两个名字，而是扫描 index.html
+版本注入：不再硬编码 ``app.js`` / ``style.css`` 两个名字，而是扫描 index.html
 引用的**所有**本地 js/css —— 前端拆成多文件后，漏注入的那个会一直被浏览器缓存，表现为
 「改了代码页面却不生效」，这类问题既难发现也难排查。外链（路径含 ``:``，如
 ``https://cdn/x.js``）天然不匹配，不会被误改。

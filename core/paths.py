@@ -2,10 +2,8 @@
 
 两类运行形态下资源落点不同，集中在此判断，避免各模块重复写分支：
 - 源码运行：__file__ = <仓库根>/core/<子包>/<模块>.py，资源在 <仓库根>/core/ 下；
-- 打包运行（Nuitka）：内容是运行时解压到临时目录的，入口 core/entry/main.py 探测出
-  该目录后经环境变量 PVE_WEBTOOLS_ROOT 传进来（build.sh 把 core/static 映射成该
-  目录下的 static/，故资源目录就是它本身）。此处不再依赖 sys._MEIPASS——
-  那是 PyInstaller 的机制，Nuitka 不提供。
+- 打包运行：资源被放到程序目录旁的资源根，入口探测出该目录后经环境变量
+  PVE_WEBTOOLS_ROOT 传进来（此时资源目录就是它本身）。
 
 用法：
 - core.paths.RESOURCE_DIR  只读资源（static/、config/、VERSION）
