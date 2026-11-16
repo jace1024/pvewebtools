@@ -1,11 +1,10 @@
-"""异常 → 状态码映射（M2/T2.7）。
+"""异常 → 状态码映射。
 
 单元部分钉住映射表本身；端到端部分往路由表临时注入「会炸」的目标，确认
 「未预期异常 → 500 + JSON 错误体」而不是「连接被静默关闭」。
 
-后者正是重构前的表现：``/api/nodes`` 在无 pvesh 环境下抛 ``UnboundLocalError``、
-``/api/upgrade/status`` 在非 Linux 上抛 ``os.geteuid`` 缺失，客户端只会看到
-``urllib.error.RemoteDisconnected``（连 HTTPError 都不是，拿不到任何错误信息）。
+否则会表现为：``/api/nodes`` 在无 pvesh 环境下抛 ``UnboundLocalError``，
+客户端只会看到 ``urllib.error.RemoteDisconnected``（连 HTTPError 都不是，拿不到任何错误信息）。
 若本文件的端到端用例抛 RemoteDisconnected，说明兜底失效。
 """
 
@@ -17,7 +16,7 @@ import urllib.request
 
 import pytest
 
-from core.pve import pve_api, upgrade
+from core.pve import pve_api
 from core.tools import toolbox
 from core.web import errors
 from core.web.routers import TABLES
@@ -32,7 +31,6 @@ def _no_auth_bypass():
 
 
 def test_status_map_covers_expected_exceptions():
-    assert errors.status_for(upgrade.UpgradeError("包不合法")) == 400
     assert errors.status_for(toolbox.ToolError("缺依赖")) == 500
     assert errors.status_for(pve_api.PveError("pvesh 失败")) == 500
 
@@ -85,7 +83,7 @@ def _request(base_url, method, path, payload=None):
 
 
 def test_unexpected_exception_becomes_500_json(base_url):
-    """未预期异常回 500 中性文案（重构前是静默断连，客户端拿不到任何信息）。"""
+    """未预期异常回 500 中性文案（不回细节、也不静默断连）。"""
     def _boom(handler, _params):
         raise RuntimeError("内部炸了")
 
@@ -97,7 +95,7 @@ def test_unexpected_exception_becomes_500_json(base_url):
 
 
 def test_expected_exception_keeps_reason(base_url):
-    """可预期异常照旧回显原因（与重构前一致，不多改一分）。"""
+    """可预期异常回显原因（不替换成中性文案）。"""
     def _refuse(handler, _params):
         raise pve_api.PveError("pvesh 调用失败：存储不存在")
 
@@ -108,25 +106,24 @@ def test_expected_exception_keeps_reason(base_url):
     assert "存储不存在" in json.loads(body)["error"]
 
 
-def test_upgrade_error_is_400_on_every_method(base_url):
+def test_tool_error_is_500_on_every_method(base_url):
     """同一个异常在四个 HTTP 方法下必须是同一结果。
 
-    重构前 ``PUT`` 漏了 ``UpgradeError`` 映射（会断连），``GET``/``DELETE`` 漏了
-    ``ToolError`` 映射——规则散在四处就必然漂移。
+    同一个异常换个 HTTP 方法就换个结果，是规则散在四处的典型后果。
     """
     def _bad(handler, _params):
-        raise upgrade.UpgradeError("升级包校验不通过")
+        raise toolbox.ToolError("该操作不可用")
 
     for method, template in (("get", "__bad_get__"), ("put", "__bad_put__"),
                              ("post", "__bad_post__"), ("delete", "__bad_delete__")):
         with _temp_route(method, template, _bad):
             status, body = _request(base_url, method.upper(), "/api/" + template)
-        assert status == 400, method
-        assert "校验不通过" in json.loads(body)["error"], method
+        assert status == 500, method
+        assert "该操作不可用" in json.loads(body)["error"], method
 
 
 def test_tool_error_maps_to_500_on_read_methods(base_url):
-    """``ToolError`` 在 GET 上也要映射（重构前 GET 没接这个异常）。"""
+    """``ToolError`` 在 GET 上也要映射。"""
     def _tool_refuse(handler, _params):
         raise toolbox.ToolError("该工具不可用")
 

@@ -1,4 +1,4 @@
-"""T4.4 文案集中管理回归测试。
+"""文案集中管理回归测试。
 
 - t(key) 返回正确中文；未知 key 回退为 key 本身。
 - 所有后端 t("key") 调用点的 key 都必须存在于 MESSAGES（防止抽离后漏翻/拼错）。
@@ -11,10 +11,7 @@ import core.web.messages as messages
 
 
 def test_t_known_keys():
-    assert messages.t("lic_added") == "已添加授权：%s（%s）"
     assert messages.t("err_internal") == "服务器内部错误"
-    # % 占位符保持原样，调用方自行格式化
-    assert messages.t("lic_added") % ("node1", "fp-x") == "已添加授权：node1（fp-x）"
 
 
 def test_t_unknown_key_falls_back():

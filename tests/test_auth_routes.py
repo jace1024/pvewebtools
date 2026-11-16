@@ -116,13 +116,13 @@ def test_logout_clears_cookie():
 
 
 def test_require_auth_public_endpoints():
-    # 登录/状态/版本/授权豁免，无需会话
+    # 登录/状态/版本豁免，无需会话
     class M(routing.RoutingMixin):
         def __init__(self):
             self.err_status = None
         def _error(self, msg, status=400):
             self.err_status = status
-    for parts in (["login"], ["auth", "status"], ["edition"], ["license", "token"]):
+    for parts in (["login"], ["auth", "status"], ["edition"]):
         m = M()
         assert m._require_auth(parts) is True
         assert m.err_status is None

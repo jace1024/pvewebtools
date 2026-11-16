@@ -1,11 +1,10 @@
-"""异常 → HTTP 状态码的唯一映射（结构重构 M2/T2.7）。
+"""异常 → HTTP 状态码的唯一映射。
 
-重构前的状况：四个 ``do_*`` 各写一份 ``try/except``，规则还不一致——``PUT`` 漏了
-``UpgradeError``、``GET``/``DELETE`` 漏了 ``ToolError``，同一个异常换个 HTTP 方法就是另一种
-结果。更麻烦的是**未预期异常**：它逃到 ``SilentHTTPServer.handle_error`` 时响应还没发出，
-连接被直接关掉，客户端只看到 ``RemoteDisconnected``——既没有可读错误，服务端也只剩一行
-没有上下文的 ``[error] 请求处理异常``（实测：``/api/nodes`` 在无 pvesh 环境下的
-``UnboundLocalError``、``/api/upgrade/status`` 在非 Linux 上的 ``os.geteuid`` 缺失）。
+四个 ``do_*`` 各写一份 ``try/except`` 会让规则漂移——``GET``/``DELETE`` 漏了
+``ToolError``，同一个异常换个 HTTP 方法就是另一种结果。更麻烦的是**未预期异常**：
+它逃到 ``SilentHTTPServer.handle_error`` 时响应还没发出，连接被直接关掉，客户端只看到
+``RemoteDisconnected``——既没有可读错误，服务端也只剩一行没有上下文的
+``[error] 请求处理异常``（实测：``/api/nodes`` 在无 pvesh 环境下的 ``UnboundLocalError``）。
 
 本模块把规则收敛到一处：
 
@@ -15,14 +14,12 @@
 
 沿用出口净化（``http_util._sanitize_text``）与「非 debug 不打栈」的既有约定：实现细节只留在
 服务端日志里，不进给客户端的响应。
-
-本模块参与 Cython 编译。
 """
 
 import sys
 import traceback
 
-from core.pve import pve_api, upgrade
+from core.pve import pve_api
 from core.tools import toolbox
 from core.web.http_util import _DEBUG_DETAIL, _DEBUG_HINT
 from core.web.messages import t
@@ -32,7 +29,6 @@ __all__ = ["EXC_STATUS", "UNEXPECTED_MESSAGE", "client_gone", "guard_error",
 
 # 可预期异常 → 状态码。顺序敏感：先匹配到的胜出，子类必须写在基类之前。
 EXC_STATUS = (
-    (upgrade.UpgradeError, 400),   # 升级包不合法 / 校验不通过 / 环境不支持：回显原因即可
     (toolbox.ToolError, 500),      # 工具拒绝执行（依赖缺失、参数非法…）
     (pve_api.PveError, 500),       # pvesh 调用失败
 )

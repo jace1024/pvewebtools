@@ -1,11 +1,14 @@
-"""进程启动入口（M2/T2.6 深化第八批）：命令行参数解析、pvesh 门槛检查、后台线程拉起（节点/授权刷新循环）、HTTP 服务启动与优雅退出。 与 HTTP 请求路径无关，独立成模块；源码运行时由 core/web/server.py 的 __main__ 分支转发到这里。"""
+"""进程启动入口：命令行参数解析、pvesh 门槛检查、后台线程拉起（节点缓存刷新）、HTTP 服务启动与优雅退出。
+
+与 HTTP 请求路径无关，故独立成模块；由 core/web/server.py 的 __main__ 分支转发到这里。
+"""
 
 import os
 import ssl
 import sys
 import threading
 
-from core.pve import pve_api, storage_provision, upgrade
+from core.pve import pve_api, storage_provision
 from core.web.maintenance import _cleanup_orphan_job_tmps, _cleanup_orphan_parts, _nodes_refresh_loop, _resume_incomplete_uploads, _sweep_stale_chunks
 from core.web import server as web_server
 from core.web.vbios import init_vbios_local
@@ -84,12 +87,6 @@ def main():
         sys.exit(1)
     # 统一初始化入口：NFS server + pvewebtools 存储注册 + 四子目录 + 旧目录布局迁移
     storage_provision.ensure_storage()
-    # 兜底：老版本/源码启动若缺少 version-installed-at 标记，用当前 UTC 时间初始化一次，
-    # 避免「系统升级」页「升级时间」空白；后续自升级/回滚会覆盖为精确时间。
-    try:
-        upgrade.ensure_installed_at_marker()
-    except Exception:
-        pass
     # vBIOS 本机初始化：迁移旧本机 vBIOS + 重建 /usr/share/kvm 软链（幂等，失败仅告警）
     try:
         init_vbios_local()
@@ -102,7 +99,7 @@ def main():
     if bool(tls_cert) != bool(tls_key):
         print("错误：--tls-cert 与 --tls-key 必须同时提供（或用 --tls 自动查找：项目 tls/ 或 PVE 证书）。")
         sys.exit(1)
-    web_server.RUN_PORT = port   # 写在 server 模块上：升级状态要报「服务实际监听端口」
+    web_server.RUN_PORT = port   # 写在 server 模块上：服务实际监听端口
     try:
         server = SilentHTTPServer(("0.0.0.0", port), ApiHandler)
     except OSError as e:

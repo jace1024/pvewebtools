@@ -1,51 +1,23 @@
 __pycache__/
 *.pyc
-iso/*
-!iso/.gitkeep
 *.log
 
-# ---- 二进制构建产物（Cython + Nuitka） ----
-*.so
-*.c
-build/
-dist/
-*.dist/
-*.build/
-edition.py
+# ---- 运行时数据（不入库） ----
+logs/
+backup/
+node_tokens.json
 
-# ---- 授权密钥（私钥绝不可入库/分发） ----
-license_private.key
-console/keys/
-console/work/
-console/download/
+# ---- 本地证书（不入库） ----
+tls/
+certs/
+*.pem
+*.key
 
-# ---- 工具运行时数据（非项目源码，不入库） ----
-.workbuddy/
-
-# ---- 离线 NFS 安装包（deb 体积大，不入库；用 offline/download_nfs_deps.sh 生成） ----
-offline/nfs-debs/*.deb
-
-# ---- 本地验证临时目录（不入库） ----
-.val_tmp/
-
-# ---- 管理台运行时数据（打包宿主机本地产物，不入库） ----
-console/data/
-console/package/
-console/offline/
-console/cert.pem
-console/key.pem
-
-# ---- 宣传素材生成产物（4K 图约 12 MB + Edge 临时 profile，体积大且可用脚本随时重生成；
-#      采集脚本 capture-*.cjs/.mjs 与 poster-4k.html 仍入库） ----
-pvewebtools-promo_assets/4k/
-
-# ---- 本地测试 / 工具缓存（不入库） ----
+# ---- 测试 / 工具缓存 ----
 .pytest_cache/
 .ruff_cache/
 .venv/
 
-# ---- 项目私有数据（运行期生成，不入库） ----
-node_tokens.json
-
 # ---- 编辑器 / AI 上下文（不入库） ----
 .codebuddy/
+.workbuddy/

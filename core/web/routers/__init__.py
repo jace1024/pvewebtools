@@ -1,4 +1,4 @@
-"""路由域聚合（结构重构 M2/T2.5）。
+"""路由域聚合。
 
 每个路由域模块（``routers/<domain>.py``）暴露自己的 ``HANDLERS``；这里把它们合并成
 ``TABLES``（HTTP 方法 -> 已编译路由表），供 ``route()`` 查表分发。
@@ -19,7 +19,6 @@ from core.web.routers import storage
 from core.web.routers import system
 from core.web.routers import toolbox
 from core.web.routers import transfer
-from core.web.routers import upgrade
 from core.web.routers import vm
 
 # 已迁入路由表的域模块（结构重构 M2/T2.6 逐批追加）
@@ -34,7 +33,6 @@ _ROUTERS = (
     download,
     toolbox,
     cluster,
-    upgrade,
 )
 
 TABLES = dispatch.merge(*_ROUTERS)
