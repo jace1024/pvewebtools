@@ -43,6 +43,18 @@ python -m core.web.server              # 默认 8899 端口；--no-auth 可关�
 3. 确保 `ruff check .` 与 `pytest` 通过。
 4. 发起 Pull Request，描述改动动机与测试情况（涉及真机验证的请注明环境：PVE 版本 / 架构）。
 
+## 贡献许可
+
+本项目以 [GNU GPL v3.0](./LICENSE) 发布。提交贡献即表示你同意：
+
+1. 你拥有所提交内容的版权，或已取得版权人的授权；
+2. 你的贡献以 GPL-3.0 授权给本项目及其使用者；
+3. 你同意维护者可在未来将本项目（含你的贡献）以其它条款再许可，包括商业许可
+   —— 这一条用于保留双许可的灵活性，请确认后再提交。
+
+提交时请在 commit message 末尾带一行 `Signed-off-by: 名字 <邮箱>`（`git commit -s` 会自动添加），
+表示你同意 [Developer Certificate of Origin](https://developercertificate.org/)。
+
 ## 文案
 
 后端用户可见文案集中在 `core/web/messages.py`，前端对应 `core/static/zh.js`，
