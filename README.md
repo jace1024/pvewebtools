@@ -109,6 +109,17 @@
 
 **前置要求**：一台 PVE 8.x / 9.x 宿主机（root 权限，自带 Python 3.9+），无需安装任何依赖。
 
+### 方式一：一行命令装完
+
+在 PVE 主机上以 root 执行（需要 `git`，没有就先 `apt install -y git`）：
+
+```bash
+git clone <仓库地址> /opt/pvewebtools-src \
+  && sudo bash /opt/pvewebtools-src/install.sh 8899
+```
+
+### 方式二：把仓库复制过去再装
+
 ```bash
 # 1. 把整个仓库复制到 PVE 主机（任意目录，例如 /root/pvewebtools）
 scp -r pvewebtools root@<PVE_IP>:/root/
@@ -119,10 +130,15 @@ cd /root/pvewebtools
 sudo ./install.sh                 # 默认安装到 /etc/pvewebtools，端口 8899
 sudo ./install.sh 9000            # 指定端口
 sudo ./install.sh 9000 /opt/pwt   # 指定端口 + 安装目录
+# 提示 Permission denied 时用 sudo bash install.sh 代替
+```
 
-# 3. 浏览器访问（首次会要求登录，见下节）
-#    未探测到证书：http://<PVE_IP>:8899
-#    探测到证书：  https://<PVE_IP>:8899
+### 装完之后
+
+```bash
+# 浏览器访问（首次会要求登录，见「登录认证」）
+#   未探测到证书：http://<PVE_IP>:8899
+#   探测到证书：  https://<PVE_IP>:8899
 ```
 
 `install.sh` 依次完成：同步程序目录 → 注册 `pvewebtools.service`（开机自启 + 崩溃自动拉起）
