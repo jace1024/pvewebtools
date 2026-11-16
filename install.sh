@@ -6,6 +6,9 @@
 #   ./install.sh 9000       # 指定端口
 #   ./install.sh 9000 /opt  # 指定端口与安装目录
 #
+# 也可以不下载仓库直接跑（脚本会自己拉源码）:
+#   curl -fsSL https://raw.githubusercontent.com/jace1024/pvewebtools/main/install.sh | sudo bash
+#
 # 做的事：把程序目录同步到安装目录 → 注册 systemd 服务（开机自启 + 崩溃自动拉起）
 #        → 创建专用登录账号 pvewebtools@pve → 自动探测证书（有证书则启用 HTTPS）。
 #
@@ -17,16 +20,33 @@ set -euo pipefail
 PORT="${1:-8899}"
 DEST="${2:-/etc/pvewebtools}"
 
-SRC="$(cd "$(dirname "$0")" && pwd)"
+REPO_URL="https://github.com/jace1024/pvewebtools.git"
 
 if [[ $EUID -ne 0 ]]; then
     echo "错误: 请用 root 运行（sudo ./install.sh）" >&2
     exit 1
 fi
 
-if [[ ! -f "$SRC/core/web/server.py" ]]; then
-    echo "错误: 当前目录不像 pvewebtools 发行包（缺少 core/web/server.py）" >&2
-    exit 1
+# ---- 定位源码目录：脚本在完整仓库里就直接用；否则（如 curl | bash）自动拉一份 ----
+_self="${BASH_SOURCE[0]:-}"
+SRC=""
+if [[ -n "$_self" && -f "$_self" ]]; then
+    SRC="$(cd "$(dirname "$_self")" && pwd)"
+fi
+
+if [[ -z "$SRC" || ! -f "$SRC/core/web/server.py" ]]; then
+    if ! command -v git >/dev/null 2>&1; then
+        echo "错误: 未找到 git，无法自动获取源码（apt install -y git 后重试，或先把仓库复制到本机）" >&2
+        exit 1
+    fi
+    TMP_DIR="$(mktemp -d /tmp/pvewebtools-install.XXXXXX)"
+    echo "==> 未检测到完整源码，正在拉取 $REPO_URL"
+    if ! git clone --depth 1 "$REPO_URL" "$TMP_DIR/pvewebtools" >/dev/null 2>&1; then
+        echo "错误: 拉取源码失败（检查网络，或改用「复制仓库后 ./install.sh」的方式）" >&2
+        exit 1
+    fi
+    echo "==> 源码已就绪: $TMP_DIR/pvewebtools"
+    exec bash "$TMP_DIR/pvewebtools/install.sh" "$@"
 fi
 
 echo "==> 安装目录: $DEST（端口 $PORT）"

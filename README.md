@@ -111,26 +111,30 @@
 
 ### 方式一：一行命令装完
 
-在 PVE 主机上以 root 执行（需要 `git`，没有就先 `apt install -y git`）：
+在 PVE 主机上以 root 执行。脚本会自己拉取源码，无需先 clone：
 
 ```bash
-git clone <仓库地址> /opt/pvewebtools-src \
-  && sudo bash /opt/pvewebtools-src/install.sh 8899
+curl -fsSL https://raw.githubusercontent.com/jace1024/pvewebtools/main/install.sh | sudo bash
 ```
 
-### 方式二：把仓库复制过去再装
+### 方式二：clone 后安装（可指定端口与目录）
 
 ```bash
-# 1. 把整个仓库复制到 PVE 主机（任意目录，例如 /root/pvewebtools）
-scp -r pvewebtools root@<PVE_IP>:/root/
+git clone https://github.com/jace1024/pvewebtools.git /opt/pvewebtools-src
+cd /opt/pvewebtools-src
 
-# 2. 一键安装
-ssh root@<PVE_IP>
-cd /root/pvewebtools
 sudo ./install.sh                 # 默认安装到 /etc/pvewebtools，端口 8899
 sudo ./install.sh 9000            # 指定端口
 sudo ./install.sh 9000 /opt/pwt   # 指定端口 + 安装目录
 # 提示 Permission denied 时用 sudo bash install.sh 代替
+```
+
+### 方式三：把仓库复制过去再装（离线 / 内网）
+
+```bash
+scp -r pvewebtools root@<PVE_IP>:/root/
+ssh root@<PVE_IP>
+cd /root/pvewebtools && sudo ./install.sh
 ```
 
 ### 装完之后
